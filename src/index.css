@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #0B1E36;
+  --color-secondary: #14B8A6;
+  --color-accent: #DFBA84;
+  --color-accent-dark: #C59B62;
+  --color-light-bg: #FAF9F6;
+  --color-dark-text: #0F172A;
+
+  --font-serif: "Playfair Display", serif;
+  --font-sans: "Inter", sans-serif;
+
+  --shadow-premium: 0 20px 50px rgba(11, 30, 54, 0.06);
+  --shadow-gold-glow: 0 0 30px rgba(223, 186, 132, 0.25);
+  --shadow-teal-glow: 0 0 30px rgba(20, 184, 166, 0.15);
+  --shadow-glass: 0 8px 32px rgba(11, 30, 54, 0.02);
+  --shadow-double: 0 4px 10px rgba(0,0,0,0.01), 0 20px 40px rgba(11,30,54,0.04);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #FAF9F6;
+}
+::-webkit-scrollbar-thumb {
+  background: #DFBA84;
+  border-radius: 20px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #C59B62;
+}
+
+/* Animated Mesh Background */
+@keyframes meshAnimation {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.mesh-gradient {
+  background: linear-gradient(135deg, #FAF6EE 0%, #EEF7F6 50%, #FAF9F6 100%);
+  background-size: 200% 200%;
+  animation: meshAnimation 12s ease infinite;
+}
+
+/* Glassmorphism custom standard */
+.glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+.no-select {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+*:focus-visible {
+  outline: 2px solid #14B8A6;
+  outline-offset: 3px;
+}

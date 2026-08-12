@@ -1,0 +1,46 @@
+[
+  {
+    "id": "log_1786551263369",
+    "timestamp": "2026-08-12T16:14:23.369Z",
+    "patientName": "Ananya Mehta (Test)",
+    "patientPhone": "+919876543210",
+    "appointmentId": "TEST-DML-999",
+    "status": "success",
+    "provider": "n8n",
+    "message": "Hello Ananya Mehta (Test),\n\nYour appointment at DermaCare Luxe Clinic is confirmed!\n\nBooking ID: TEST-DML-999\nDoctor: Dr. Priya Sharma\nService: Acne & Scar Treatment\nDate: Wednesday, 12 August 2026\nTime: 11:30 AM - 12:30 PM\n\nA calendar invite has been added for your visit. Thank you!",
+    "error": null
+  },
+  {
+    "id": "log_1786551111586",
+    "timestamp": "2026-08-12T16:11:51.586Z",
+    "patientName": "Ananya Mehta (Test)",
+    "patientPhone": "+919876543210",
+    "appointmentId": "TEST-DML-999",
+    "status": "success",
+    "provider": "n8n",
+    "message": "Hello Ananya Mehta (Test),\n\nYour appointment at DermaCare Luxe Clinic is confirmed!\n\nBooking ID: TEST-DML-999\nDoctor: Dr. Priya Sharma\nService: Acne & Scar Treatment\nDate: Wednesday, 12 August 2026\nTime: 11:30 AM - 12:30 PM\n\nA calendar invite has been added for your visit. Thank you!",
+    "error": null
+  },
+  {
+    "id": "log_1786550462584",
+    "timestamp": "2026-08-12T16:01:02.584Z",
+    "patientName": "Raval Jainam",
+    "patientPhone": "9104422691",
+    "appointmentId": "DML-136797",
+    "status": "success",
+    "provider": "twilio",
+    "message": "Hello Raval Jainam,\n\nYour appointment at DermaCare Luxe Clinic has been confirmed!\n\nBooking Details:\n* Booking ID: DML-136797\n* Doctor: Dr. Priya Sharma\n* Service: Acne & Scar Treatment\n* Date: Thursday, 20 August 2026\n* Time: 07:00 PM - 08:00 PM\n\nThank you for choosing DermaCare Luxe.",
+    "error": null
+  },
+  {
+    "id": "log_1786550121697",
+    "timestamp": "2026-08-12T15:55:21.697Z",
+    "patientName": "Rohan Verma",
+    "patientPhone": "+919876543210",
+    "appointmentId": "DML-351281",
+    "status": "success",
+    "provider": "twilio",
+    "message": "Hello Rohan Verma,\n\nYour appointment at DermaCare Luxe Clinic has been confirmed!\n\nBooking Details:\n* Booking ID: DML-351281\n* Doctor: Dr. Priya Sharma\n* Service: Acne & Scar Treatment\n* Date: Thursday, 20 August 2026\n* Time: 11:30 AM - 12:30 PM\n\nThank you for choosing DermaCare Luxe.",
+    "error": null
+  }
+]
