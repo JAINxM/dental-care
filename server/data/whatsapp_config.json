@@ -1,0 +1,25 @@
+{
+  "enabled": true,
+  "provider": "meta",
+  "n8nWebhookUrl": "https://ravaljainam.app.n8n.cloud/webhook-test/booking-appointment",
+  "twilio": {
+    "accountSid": "",
+    "authToken": "",
+    "senderNumber": "whatsapp:+14155238886"
+  },
+  "meta": {
+    "accessToken": "",
+    "phoneNumberId": "",
+    "templateName": "appointment_confirmation",
+    "languageCode": "en_US"
+  },
+  "custom": {
+    "endpoint": ""
+  },
+  "clinicDetails": {
+    "name": "DermaCare Luxe Clinic",
+    "doctorName": "Dr. Priya Sharma",
+    "phone": "+91 9157931095"
+  },
+  "n8nCancelWebhookUrl": ""
+}
