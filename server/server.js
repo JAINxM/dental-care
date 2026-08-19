@@ -18,16 +18,11 @@ const APPOINTMENTS_FILE = path.join(DATA_DIR, 'appointments.json');
 const CONFIG_FILE = path.join(DATA_DIR, 'whatsapp_config.json');
 const LOGS_FILE = path.join(DATA_DIR, 'whatsapp_logs.json');
 
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const readJSON = (filePath, fallback = []) => {
   try {
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, 'utf8');
-      return JSON.parse(content);
-    }
+    if (fs.existsSync(filePath)) return JSON.parse(fs.readFileSync(filePath, 'utf8'));
   } catch (err) {
     console.error(`Error reading ${filePath}:`, err);
   }
@@ -44,25 +39,14 @@ const writeJSON = (filePath, data) => {
   }
 };
 
-// Default WhatsApp & Automation Configuration
 const DEFAULT_WHATSAPP_CONFIG = {
   enabled: true,
-  provider: 'n8n', // Default to n8n for full WhatsApp + Google Calendar automation
-  n8nWebhookUrl: 'https://n8n.your-domain.com/webhook/dermacare-booking',
-  twilio: {
-    accountSid: '',
-    authToken: '',
-    senderNumber: 'whatsapp:+14155238886'
-  },
-  meta: {
-    accessToken: '',
-    phoneNumberId: '',
-    templateName: 'appointment_confirmation',
-    languageCode: 'en_US'
-  },
-  custom: {
-    endpoint: ''
-  },
+  provider: 'n8n',
+  n8nWebhookUrl: 'https://ravaljainam.app.n8n.cloud/webhook-test/dermacare/booking-created',
+  n8nCancelWebhookUrl: 'https://ravaljainam.app.n8n.cloud/webhook-test/dermacare/booking-cancelled',
+  twilio: { accountSid: '', authToken: '', senderNumber: 'whatsapp:+14155238886' },
+  meta: { accessToken: '', phoneNumberId: '', templateName: 'appointment_confirmation', languageCode: 'en_US' },
+  custom: { endpoint: '' },
   clinicDetails: {
     name: 'DermaCare Luxe Clinic',
     doctorName: 'Dr. Priya Sharma',
@@ -71,97 +55,13 @@ const DEFAULT_WHATSAPP_CONFIG = {
 };
 
 const SERVICES_DATA = [
-  {
-    id: 'acne',
-    name: 'Acne & Scar Treatment',
-    icon: 'droplets',
-    desc: 'Shatter active acne and stimulate dermis repair using therapeutic gold-standard peels and non-ablative RF microneedling.',
-    duration: '45 - 60 min',
-    sessions: '3 - 5 Sessions',
-    recovery: '1 - 2 Days',
-    idealFor: 'Pitted scars, hyperpigmentation, active congestion.',
-    category: 'Acne & Scars',
-    efficacy: '97%',
-    fullDetails: 'Combining medical chemical peeling with high-frequency RF needling targets root causes. Peels clear keratin plugs, while sterile needles stimulate deep fibroblast cells to reconstruct scarred skin, leaving skin smooth and uniform.'
-  },
-  {
-    id: 'hair-loss',
-    name: 'Hair Loss Therapy (PRP)',
-    icon: 'wind',
-    desc: 'Clinical autologous growth factors injected into the scalp to restore thinning crown density and reactivate dormant follicles.',
-    duration: '60 min',
-    sessions: '4 - 6 Sessions',
-    recovery: 'Immediate',
-    idealFor: 'Weak roots, crown thinning, stress-induced shedding.',
-    category: 'Hair Care',
-    efficacy: '94%',
-    fullDetails: 'PRP concentrates high levels of healing growth factors from your own blood. Under local anesthetic, this gold serum is injected into sparse scalp areas to expand follicle bulbs and extend the active growing phase.'
-  },
-  {
-    id: 'eczema',
-    name: 'Skin Allergy & Eczema',
-    icon: 'shield',
-    desc: 'Advanced patch testing, barrier-repair formulas, and tailored immunotherapy protocols to manage chronic dermatitis.',
-    duration: '30 min',
-    sessions: 'Ongoing',
-    recovery: 'None',
-    idealFor: 'Extreme flaking, dynamic rashes, histamine triggers.',
-    category: 'Allergy',
-    efficacy: '98%',
-    fullDetails: 'We isolate allergens through clinical patch diagnostics. Our protocols reconstruct damaged moisture barriers using custom emollients, medical light therapy, and advanced biologic creams for severe flares.'
-  },
-  {
-    id: 'laser-resurfacing',
-    name: 'Laser Resurfacing',
-    icon: 'zap',
-    desc: 'Fractional CO2 laser grids to vaporize aging skin layers, clear deep expression lines, and shrink enlarged pores.',
-    duration: '45 min',
-    sessions: '2 - 4 Sessions',
-    recovery: '3 - 5 Days',
-    idealFor: 'Static wrinkles, sun damage, deep textural pits.',
-    category: 'Laser',
-    efficacy: '96%',
-    fullDetails: 'Our laser sends micro-beams of thermal energy down into the dermis. This vaporizes sun-damaged cells, triggers instant contraction of loose elastin fibers, and remodels complete facial texture.'
-  },
-  {
-    id: 'botox',
-    name: 'Anti-Aging & Botox',
-    icon: 'sparkles',
-    desc: 'Gracefully erase expression furrows and plump hollow structural regions using premium FDA neuromodulators.',
-    duration: '30 min',
-    sessions: '4 - 6 Months',
-    recovery: 'Minimal',
-    idealFor: 'Crow\'s feet, forehead lines, sunken cheeks.',
-    category: 'Anti-Aging',
-    efficacy: '99%',
-    fullDetails: 'Achieve a well-rested appearance that preserves natural dynamic expressions. We strategically inject premium FDA-approved relaxers and hyaluronic fillers to elevate dynamic muscle planes.'
-  },
-  {
-    id: 'pigmentation',
-    name: 'Pigmentation Correction',
-    icon: 'sun',
-    desc: 'Q-Switched Nd:YAG lasers and tailored botanical lighteners to dismantle melasma and sun freckles.',
-    duration: '45 min',
-    sessions: '4 - 6 Sessions',
-    recovery: 'Minimal',
-    idealFor: 'Patchy cheek melasma, dark sun spots, uneven tone.',
-    category: 'Pigmentation',
-    efficacy: '95%',
-    fullDetails: 'Our lasers shatter deep hyper-concentrated melanin deposits without overheating the surface skin. We couple this with custom brightening micro-infusions to maintain long-term clarity.'
-  },
-  {
-    id: 'cosmetic',
-    name: 'Cosmetic Dermatology',
-    icon: 'star',
-    desc: 'Medical-grade Hydrafacials and direct skin-booster micro-droplets to deliver an ultra-dewy glass skin glow.',
-    duration: '75 min',
-    sessions: 'Monthly',
-    recovery: '12 Hours',
-    idealFor: 'Bridal prep, dry dull complexion, glow maintenance.',
-    category: 'Cosmetic',
-    efficacy: '98%',
-    fullDetails: 'This multi-step medical facial uses vortex suction to sweep away impurities, drenching the skin in rich hyaluronic acid, anti-aging peptides, and brightening antioxidants for instant glass-skin radiance.'
-  }
+  { id: 'acne', name: 'Acne & Scar Treatment', icon: 'droplets', desc: 'Shatter active acne and stimulate dermis repair using therapeutic gold-standard peels and non-ablative RF microneedling.', duration: '45 - 60 min', sessions: '3 - 5 Sessions', recovery: '1 - 2 Days', idealFor: 'Pitted scars, hyperpigmentation, active congestion.', category: 'Acne & Scars', efficacy: '97%', fullDetails: 'Combining medical chemical peeling with high-frequency RF needling targets root causes.' },
+  { id: 'hair-loss', name: 'Hair Loss Therapy (PRP)', icon: 'wind', desc: 'Clinical autologous growth factors injected into the scalp to restore thinning crown density and reactivate dormant follicles.', duration: '60 min', sessions: '4 - 6 Sessions', recovery: 'Immediate', idealFor: 'Weak roots, crown thinning, stress-induced shedding.', category: 'Hair Care', efficacy: '94%', fullDetails: 'PRP concentrates healing growth factors from your own blood and targets sparse scalp areas.' },
+  { id: 'eczema', name: 'Skin Allergy & Eczema', icon: 'shield', desc: 'Advanced patch testing, barrier-repair formulas, and tailored protocols to manage chronic dermatitis.', duration: '30 min', sessions: 'Ongoing', recovery: 'None', idealFor: 'Extreme flaking, dynamic rashes, histamine triggers.', category: 'Allergy', efficacy: '98%', fullDetails: 'We isolate allergens through clinical patch diagnostics and reconstruct damaged moisture barriers.' },
+  { id: 'laser-resurfacing', name: 'Laser Resurfacing', icon: 'zap', desc: 'Fractional CO2 laser grids to clear deep expression lines and shrink enlarged pores.', duration: '45 min', sessions: '2 - 4 Sessions', recovery: '3 - 5 Days', idealFor: 'Static wrinkles, sun damage, deep textural pits.', category: 'Laser', efficacy: '96%', fullDetails: 'Fractional laser energy remodels damaged skin and stimulates dermal repair.' },
+  { id: 'botox', name: 'Anti-Aging & Botox', icon: 'sparkles', desc: 'Erase expression furrows and restore volume using premium neuromodulators and fillers.', duration: '30 min', sessions: '4 - 6 Months', recovery: 'Minimal', idealFor: 'Crow\'s feet, forehead lines, sunken cheeks.', category: 'Anti-Aging', efficacy: '99%', fullDetails: 'Strategic injectables restore a rested appearance while preserving natural expressions.' },
+  { id: 'pigmentation', name: 'Pigmentation Correction', icon: 'sun', desc: 'Q-Switched Nd:YAG lasers and tailored botanical lighteners to address melasma and sun freckles.', duration: '45 min', sessions: '4 - 6 Sessions', recovery: 'Minimal', idealFor: 'Patchy cheek melasma, dark sun spots, uneven tone.', category: 'Pigmentation', efficacy: '95%', fullDetails: 'Laser and brightening protocols target concentrated melanin while protecting the skin surface.' },
+  { id: 'cosmetic', name: 'Cosmetic Dermatology', icon: 'star', desc: 'Medical-grade Hydrafacials and skin boosters for an ultra-dewy glow.', duration: '75 min', sessions: 'Monthly', recovery: '12 Hours', idealFor: 'Bridal prep, dry dull complexion, glow maintenance.', category: 'Cosmetic', efficacy: '98%', fullDetails: 'A multi-step medical facial cleanses, hydrates and replenishes the skin.' }
 ];
 
 const QUIZ_QUESTIONS = [
@@ -171,129 +71,133 @@ const QUIZ_QUESTIONS = [
   { concern: 'Wrinkles & Loss of Volume', treatment: 'Anti-Aging & Botox', duration: '30 min', code: 'botox', resultText: 'FDA-approved neuromodulators and fillers restore volume while preserving expressions.' }
 ];
 
-// --- HELPER TO TRIGGER n8n AUTOMATION & WHATSAPP NOTIFICATIONS ---
-async function sendAutomationPayload(appointment) {
-  const config = readJSON(CONFIG_FILE, DEFAULT_WHATSAPP_CONFIG);
-  const logs = readJSON(LOGS_FILE, []);
+const getConfig = () => {
+  const stored = readJSON(CONFIG_FILE, {});
+  return {
+    ...DEFAULT_WHATSAPP_CONFIG,
+    ...stored,
+    n8nWebhookUrl: process.env.N8N_BOOKING_WEBHOOK_URL || stored.n8nWebhookUrl || DEFAULT_WHATSAPP_CONFIG.n8nWebhookUrl,
+    n8nCancelWebhookUrl: process.env.N8N_CANCEL_WEBHOOK_URL || stored.n8nCancelWebhookUrl || DEFAULT_WHATSAPP_CONFIG.n8nCancelWebhookUrl
+  };
+};
 
-  const logEntry = {
-    id: 'log_' + Date.now(),
-    timestamp: new Date().toISOString(),
-    patientName: appointment.name,
-    patientPhone: appointment.phone,
-    appointmentId: appointment.id,
-    status: 'pending',
-    provider: config.provider || 'n8n',
-    message: '',
-    error: null
+const getN8nToken = () => process.env.N8N_BACKEND_TOKEN || '';
+
+const requireN8nAuth = (req, res, next) => {
+  const expected = getN8nToken();
+  const header = req.get('authorization') || '';
+  const supplied = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+
+  if (!expected) {
+    return res.status(500).json({ success: false, error: 'N8N_BACKEND_TOKEN is not configured on the backend.' });
+  }
+  if (!supplied || supplied !== expected) {
+    return res.status(401).json({ success: false, error: 'Unauthorized n8n request.' });
+  }
+  next();
+};
+
+const parseTimeSlot = (date, time) => {
+  const match = String(time || '').match(/^\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*-\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*$/i);
+  if (!match) return { startISO: `${date}T10:00:00+05:30`, endISO: `${date}T11:00:00+05:30` };
+
+  const to24 = (hour, meridiem) => {
+    let h = Number(hour);
+    if (meridiem.toUpperCase() === 'AM') return h === 12 ? 0 : h;
+    return h === 12 ? 12 : h + 12;
   };
 
-  if (!config.enabled) {
-    logEntry.status = 'skipped_disabled';
-    logEntry.message = 'Automation & WhatsApp notifications disabled in admin settings.';
-    logs.unshift(logEntry);
-    writeJSON(LOGS_FILE, logs.slice(0, 100));
-    return { success: false, reason: 'Notifications disabled' };
-  }
+  const startHour = to24(match[1], match[3]);
+  const endHour = to24(match[4], match[6]);
+  return {
+    startISO: `${date}T${String(startHour).padStart(2, '0')}:${match[2]}:00+05:30`,
+    endISO: `${date}T${String(endHour).padStart(2, '0')}:${match[5]}:00+05:30`
+  };
+};
 
-  let formattedDate = appointment.date || 'N/A';
-  try {
-    if (appointment.date) {
-      formattedDate = new Date(appointment.date).toLocaleDateString('en-IN', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      });
-    }
-  } catch (e) {}
+const postToN8n = async (url, payload) => {
+  if (!url || !url.startsWith('http')) return { sent: false, reason: 'Webhook URL is not configured.' };
 
-  // ISO Timestamps for Google Calendar Integration
-  const startTimeStr = appointment.time ? appointment.time.split('-')[0].trim() : '10:00 AM';
-  const startISO = `${appointment.date}T10:00:00+05:30`;
-  const endISO = `${appointment.date}T11:00:00+05:30`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
 
-  const n8nPayload = {
+  const text = await response.text();
+  if (!response.ok) throw new Error(`n8n webhook returned ${response.status}: ${text.slice(0, 300)}`);
+  return { sent: true, status: response.status, response: text.slice(0, 300) };
+};
+
+const sendAutomationPayload = async (appointment) => {
+  const config = getConfig();
+  const logs = readJSON(LOGS_FILE, []);
+  const { startISO, endISO } = parseTimeSlot(appointment.date, appointment.time);
+  const formattedDate = appointment.date ? new Date(`${appointment.date}T00:00:00+05:30`).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A';
+
+  const payload = {
     event: 'appointment.created',
     appointmentId: appointment.id,
     patientName: appointment.name,
     patientPhone: appointment.phone,
     patientEmail: appointment.email || '',
     service: appointment.service,
-    date: formattedDate,
     rawDate: appointment.date,
     time: appointment.time,
-    notes: appointment.notes || '',
-    status: appointment.status || 'Confirmed',
-    createdAt: appointment.createdAt,
-    clinic: {
-      name: config.clinicDetails?.name || 'DermaCare Luxe Clinic',
-      doctorName: config.clinicDetails?.doctorName || 'Dr. Priya Sharma',
-      phone: config.clinicDetails?.phone || '+91 9157931095'
-    },
+    calendarEventId: appointment.calendarEventId || '',
     googleCalendar: {
-      summary: `DermaCare Luxe: ${appointment.service} - ${appointment.name}`,
+      summary: `DermaCare Luxe Clinic: ${appointment.service} - ${appointment.name}`,
       description: `Patient: ${appointment.name}\nPhone: ${appointment.phone}\nEmail: ${appointment.email || 'N/A'}\nService: ${appointment.service}\nNotes: ${appointment.notes || 'None'}`,
       startISO,
       endISO,
       timeZone: 'Asia/Kolkata'
     },
-    whatsappMessageBody: `Hello ${appointment.name},\n\nYour appointment at ${config.clinicDetails?.name || 'DermaCare Luxe'} is confirmed!\n\nBooking ID: ${appointment.id}\nDoctor: ${config.clinicDetails?.doctorName || 'Dr. Priya Sharma'}\nService: ${appointment.service}\nDate: ${formattedDate}\nTime: ${appointment.time}\n\nA calendar invite has been added for your visit. Thank you!`
+    whatsappMessageBody: `Hello ${appointment.name},\n\nYour appointment at ${config.clinicDetails?.name || 'DermaCare Luxe Clinic'} is confirmed!\n\nBooking ID: ${appointment.id}\nDoctor: ${config.clinicDetails?.doctorName || 'Dr. Priya Sharma'}\nService: ${appointment.service}\nDate: ${formattedDate}\nTime: ${appointment.time}\n\nA calendar invite has been added for your visit. Thank you!`
   };
 
-  logEntry.message = n8nPayload.whatsappMessageBody;
-
   try {
-    if (config.provider === 'n8n' || config.n8nWebhookUrl) {
-      console.log(`[n8n Webhook Trigger]: Sending payload to ${config.n8nWebhookUrl}`);
-      
-      // Attempt n8n Webhook HTTP Call if valid URL provided
-      if (config.n8nWebhookUrl && config.n8nWebhookUrl.startsWith('http')) {
-        try {
-          const res = await fetch(config.n8nWebhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(n8nPayload)
-          });
-          console.log(`n8n response status: ${res.status}`);
-        } catch (fetchErr) {
-          console.log(`n8n URL unreachable in local dev mode (simulated payload):`, fetchErr.message);
-        }
-      }
-
-      logEntry.status = 'success';
-      logs.unshift(logEntry);
-      writeJSON(LOGS_FILE, logs.slice(0, 100));
-      return {
-        success: true,
-        provider: 'n8n',
-        message: 'Payload delivered to n8n webhook (WhatsApp + Google Calendar triggered)',
-        payload: n8nPayload
-      };
-    } else {
-      logEntry.status = 'success';
-      logs.unshift(logEntry);
-      writeJSON(LOGS_FILE, logs.slice(0, 100));
-      return { success: true, message: 'Notification logged' };
-    }
-  } catch (err) {
-    logEntry.status = 'failed';
-    logEntry.error = err.message || String(err);
-    logs.unshift(logEntry);
+    const result = config.enabled && (config.provider === 'n8n' || config.n8nWebhookUrl)
+      ? await postToN8n(config.n8nWebhookUrl, payload)
+      : { sent: false, reason: 'Automation disabled.' };
+    logs.unshift({ id: `log_${Date.now()}`, timestamp: new Date().toISOString(), patientName: appointment.name, patientPhone: appointment.phone, appointmentId: appointment.id, status: result.sent ? 'success' : 'skipped', provider: 'n8n', message: payload.whatsappMessageBody, error: null });
     writeJSON(LOGS_FILE, logs.slice(0, 100));
-    return { success: false, error: err.message };
+    return { success: true, provider: 'n8n', payload, n8n: result };
+  } catch (err) {
+    logs.unshift({ id: `log_${Date.now()}`, timestamp: new Date().toISOString(), patientName: appointment.name, patientPhone: appointment.phone, appointmentId: appointment.id, status: 'failed', provider: 'n8n', message: payload.whatsappMessageBody, error: err.message });
+    writeJSON(LOGS_FILE, logs.slice(0, 100));
+    return { success: false, error: err.message, payload };
   }
-}
+};
 
-// --- API ENDPOINTS ---
+const sendCancellationPayload = async (appointment, cancelledBy = 'customer') => {
+  const config = getConfig();
+  const payload = {
+    event: 'appointment.cancelled',
+    appointmentId: appointment.id,
+    patientName: appointment.name,
+    patientPhone: appointment.phone,
+    patientEmail: appointment.email || '',
+    service: appointment.service,
+    rawDate: appointment.date,
+    time: appointment.time,
+    status: 'Cancelled',
+    cancelledBy,
+    calendarEventId: appointment.calendarEventId || '',
+    googleCalendar: { eventId: appointment.calendarEventId || '' },
+    whatsappMessageBody: `Hello ${appointment.name},\n\nYour appointment ${appointment.id} at ${config.clinicDetails?.name || 'DermaCare Luxe Clinic'} has been cancelled.\n\nService: ${appointment.service}\nDate: ${appointment.date}\nTime: ${appointment.time}\n\nPlease contact us if you would like to reschedule.`
+  };
 
-app.get('/api/services', (req, res) => {
-  res.json({ success: true, data: SERVICES_DATA });
-});
+  if (!config.enabled || !config.n8nCancelWebhookUrl) return { success: true, skipped: true, payload };
+  try {
+    const n8n = await postToN8n(config.n8nCancelWebhookUrl, payload);
+    return { success: true, payload, n8n };
+  } catch (err) {
+    return { success: false, error: err.message, payload };
+  }
+};
 
-app.get('/api/quiz', (req, res) => {
-  res.json({ success: true, data: QUIZ_QUESTIONS });
-});
+app.get('/api/services', (req, res) => res.json({ success: true, data: SERVICES_DATA }));
+app.get('/api/quiz', (req, res) => res.json({ success: true, data: QUIZ_QUESTIONS }));
 
 app.get('/api/appointments', (req, res) => {
   const appointments = readJSON(APPOINTMENTS_FILE, []);
@@ -301,92 +205,88 @@ app.get('/api/appointments', (req, res) => {
 });
 
 app.post('/api/appointments', async (req, res) => {
-  const { name, phone, email, service, date, time, notes } = req.body;
-
-  if (!name || !phone || !service || !date || !time) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required fields: name, phone, service, date, time'
-    });
-  }
+  const { name, phone, email, service, date, time, notes } = req.body || {};
+  if (!name || !phone || !service || !date || !time) return res.status(400).json({ success: false, error: 'Missing required fields: name, phone, service, date, time' });
 
   const appointments = readJSON(APPOINTMENTS_FILE, []);
   const newAppointment = {
-    id: 'DML-' + Math.floor(100000 + Math.random() * 900000),
-    name: name.trim(),
-    phone: phone.trim(),
-    email: email ? email.trim() : '',
-    service,
-    date,
-    time,
-    notes: notes || '',
-    status: 'Confirmed',
-    createdAt: new Date().toISOString()
+    id: `DML-${Math.floor(100000 + Math.random() * 900000)}`,
+    name: String(name).trim(), phone: String(phone).trim(), email: email ? String(email).trim() : '', service, date, time, notes: notes || '', status: 'Confirmed', createdAt: new Date().toISOString(), calendarEventId: ''
   };
 
   appointments.unshift(newAppointment);
-  writeJSON(APPOINTMENTS_FILE, appointments);
+  if (!writeJSON(APPOINTMENTS_FILE, appointments)) return res.status(500).json({ success: false, error: 'Unable to persist appointment.' });
 
-  // Trigger automated n8n Webhook / WhatsApp + Google Calendar
-  const automationResult = await sendAutomationPayload(newAppointment);
-
-  res.status(201).json({
-    success: true,
-    message: 'Appointment booked successfully!',
-    appointment: newAppointment,
-    automation: automationResult
-  });
+  const automation = await sendAutomationPayload(newAppointment);
+  res.status(201).json({ success: true, message: 'Appointment booked successfully!', appointment: newAppointment, automation });
 });
 
-app.delete('/api/appointments/:id', (req, res) => {
+app.patch('/api/appointments/:id/calendar-event', requireN8nAuth, (req, res) => {
   const { id } = req.params;
-  let appointments = readJSON(APPOINTMENTS_FILE, []);
-  const initialLength = appointments.length;
+  const calendarEventId = typeof req.body?.calendarEventId === 'string' ? req.body.calendarEventId.trim() : '';
+  if (!calendarEventId) return res.status(400).json({ success: false, error: 'calendarEventId is required.' });
 
-  appointments = appointments.filter(app => app.id !== id);
-  if (appointments.length === initialLength) {
-    return res.status(404).json({ success: false, error: 'Appointment not found' });
-  }
+  const appointments = readJSON(APPOINTMENTS_FILE, []);
+  const index = appointments.findIndex((appointment) => appointment.id === id);
+  if (index === -1) return res.status(404).json({ success: false, error: 'Appointment not found.' });
 
-  writeJSON(APPOINTMENTS_FILE, appointments);
-  res.json({ success: true, message: 'Appointment deleted successfully' });
+  appointments[index].calendarEventId = calendarEventId;
+  if (!writeJSON(APPOINTMENTS_FILE, appointments)) return res.status(500).json({ success: false, error: 'Unable to persist calendarEventId.' });
+
+  res.status(200).json({ success: true, appointmentId: id, calendarEventId });
 });
 
-app.get('/api/whatsapp/config', (req, res) => {
-  const config = readJSON(CONFIG_FILE, DEFAULT_WHATSAPP_CONFIG);
-  res.json({ success: true, data: config });
+app.patch('/api/appointments/:id/cancel', async (req, res) => {
+  const { id } = req.params;
+  const cancelledBy = req.body?.cancelledBy || 'customer';
+  const appointments = readJSON(APPOINTMENTS_FILE, []);
+  const index = appointments.findIndex((appointment) => appointment.id === id);
+  if (index === -1) return res.status(404).json({ success: false, error: 'Appointment not found.' });
+
+  const appointment = { ...appointments[index], status: 'Cancelled' };
+  appointments[index] = appointment;
+  if (!writeJSON(APPOINTMENTS_FILE, appointments)) return res.status(500).json({ success: false, error: 'Unable to persist cancellation.' });
+
+  const automation = await sendCancellationPayload(appointment, cancelledBy);
+  res.json({ success: true, appointment, automation });
 });
 
+app.delete('/api/appointments/:id', async (req, res) => {
+  const { id } = req.params;
+  const cancelledBy = req.query.cancelledBy || 'admin';
+  const appointments = readJSON(APPOINTMENTS_FILE, []);
+  const appointment = appointments.find((item) => item.id === id);
+  if (!appointment) return res.status(404).json({ success: false, error: 'Appointment not found' });
+
+  const cancellation = await sendCancellationPayload({ ...appointment, status: 'Cancelled' }, cancelledBy);
+  const remaining = appointments.filter((item) => item.id !== id);
+  if (!writeJSON(APPOINTMENTS_FILE, remaining)) return res.status(500).json({ success: false, error: 'Unable to delete appointment.' });
+
+  res.json({ success: true, message: 'Appointment cancelled and deleted successfully', cancellation });
+});
+
+app.get('/api/whatsapp/config', (req, res) => res.json({ success: true, data: getConfig() }));
 app.post('/api/whatsapp/config', (req, res) => {
-  const newConfig = { ...DEFAULT_WHATSAPP_CONFIG, ...req.body };
-  writeJSON(CONFIG_FILE, newConfig);
-  res.json({ success: true, message: 'Configuration saved', data: newConfig });
+  const current = getConfig();
+  const next = { ...current, ...req.body, n8nWebhookUrl: req.body?.n8nWebhookUrl || current.n8nWebhookUrl, n8nCancelWebhookUrl: req.body?.n8nCancelWebhookUrl || current.n8nCancelWebhookUrl };
+  if (!writeJSON(CONFIG_FILE, next)) return res.status(500).json({ success: false, error: 'Unable to save configuration.' });
+  res.json({ success: true, message: 'Configuration saved', data: next });
 });
 
-app.get('/api/whatsapp/logs', (req, res) => {
-  const logs = readJSON(LOGS_FILE, []);
-  res.json({ success: true, data: logs });
-});
+app.get('/api/whatsapp/logs', (req, res) => res.json({ success: true, data: readJSON(LOGS_FILE, []) }));
 
-// Test n8n Webhook Endpoint
 app.post('/api/n8n/test', async (req, res) => {
   const dummyAppointment = {
-    id: 'TEST-DML-999',
-    name: 'Ananya Mehta (Test)',
-    phone: '+919876543210',
-    email: 'test@example.com',
-    service: 'Acne & Scar Treatment',
-    date: new Date().toISOString().split('T')[0],
-    time: '11:30 AM - 12:30 PM',
-    notes: 'Test booking from admin UI',
-    status: 'Confirmed',
-    createdAt: new Date().toISOString()
+    id: 'TEST-DML-999', name: 'Ananya Mehta (Test)', phone: '+919876543210', email: 'test@example.com', service: 'Acne & Scar Treatment', date: new Date().toISOString().split('T')[0], time: '11:30 AM - 12:30 PM', notes: 'Test booking from admin UI', status: 'Confirmed', createdAt: new Date().toISOString(), calendarEventId: ''
   };
-
-  const result = await sendAutomationPayload(dummyAppointment);
-  res.json({ success: true, result });
+  res.json(await sendAutomationPayload(dummyAppointment));
 });
 
-app.listen(PORT, () => {
-  console.log(`DermaCare Luxe Node.js Backend listening on http://localhost:${PORT}`);
-});
+app.get('/api/health', (req, res) => res.json({ success: true, service: 'DermaCare Luxe API' }));
+
+// Local development only. Vercel imports the app as a serverless function.
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => console.log(`DermaCare Luxe Node.js Backend listening on http://localhost:${PORT}`));
+}
+
+export default app;
