@@ -1,5 +1,40 @@
 [
   {
+    "id": "log_1787156722821",
+    "timestamp": "2026-08-19T16:25:22.821Z",
+    "patientName": "Raval Jainam",
+    "patientPhone": "1234567890",
+    "appointmentId": "DML-175767",
+    "status": "success",
+    "provider": "meta",
+    "event": "appointment.created",
+    "message": "Hello Raval Jainam,\n\nYour appointment at DermaCare Luxe Clinic is confirmed!\n\nBooking ID: DML-175767\nDoctor: Dr. Priya Sharma\nService: Hair Loss Therapy (PRP)\nDate: Thursday, 20 August 2026\nTime: 04:00 PM - 05:00 PM\n\nA calendar invite has been added for your visit. Thank you!",
+    "error": null,
+    "calendarEventId": ""
+  },
+  {
+    "id": "log_1786553305440",
+    "timestamp": "2026-08-12T16:48:25.440Z",
+    "patientName": "Raval Jainam",
+    "patientPhone": "1234567890",
+    "appointmentId": "DML-460133",
+    "status": "success",
+    "provider": "n8n",
+    "message": "Hello Raval Jainam,\n\nYour appointment at DermaCare Luxe Clinic is confirmed!\n\nBooking ID: DML-460133\nDoctor: Dr. Priya Sharma\nService: Laser Resurfacing\nDate: Thursday, 20 August 2026\nTime: 07:00 PM - 08:00 PM\n\nA calendar invite has been added for your visit. Thank you!",
+    "error": null
+  },
+  {
+    "id": "log_1786552616767",
+    "timestamp": "2026-08-12T16:36:56.767Z",
+    "patientName": "Ananya Mehta (Test)",
+    "patientPhone": "+919876543210",
+    "appointmentId": "TEST-DML-999",
+    "status": "success",
+    "provider": "n8n",
+    "message": "Hello Ananya Mehta (Test),\n\nYour appointment at DermaCare Luxe Clinic is confirmed!\n\nBooking ID: TEST-DML-999\nDoctor: Dr. Priya Sharma\nService: Acne & Scar Treatment\nDate: Wednesday, 12 August 2026\nTime: 11:30 AM - 12:30 PM\n\nA calendar invite has been added for your visit. Thank you!",
+    "error": null
+  },
+  {
     "id": "log_1786551263369",
     "timestamp": "2026-08-12T16:14:23.369Z",
     "patientName": "Ananya Mehta (Test)",

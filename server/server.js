@@ -46,9 +46,10 @@ const writeJSON = (filePath, data) => {
 
 // Default WhatsApp & Automation Configuration
 const DEFAULT_WHATSAPP_CONFIG = {
-  enabled: true,
+  enabled: false,
   provider: 'n8n', // Default to n8n for full WhatsApp + Google Calendar automation
-  n8nWebhookUrl: 'https://n8n.your-domain.com/webhook/dermacare-booking',
+  n8nWebhookUrl: '',
+  n8nCancelWebhookUrl: '',
   twilio: {
     accountSid: '',
     authToken: '',
@@ -171,10 +172,72 @@ const QUIZ_QUESTIONS = [
   { concern: 'Wrinkles & Loss of Volume', treatment: 'Anti-Aging & Botox', duration: '30 min', code: 'botox', resultText: 'FDA-approved neuromodulators and fillers restore volume while preserving expressions.' }
 ];
 
+const parseAppointmentSlot = (date, time) => {
+  const fallbackStart = `${date}T10:00:00+05:30`;
+  const fallbackEnd = `${date}T11:00:00+05:30`;
+
+  if (!date || !time) {
+    return { startISO: fallbackStart, endISO: fallbackEnd };
+  }
+
+  const to24Hour = (value) => {
+    const match = value.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i);
+    if (!match) return null;
+
+    let hours = Number(match[1]);
+    const minutes = Number(match[2] || '0');
+    const period = match[3].toUpperCase();
+
+    if (period === 'PM' && hours !== 12) hours += 12;
+    if (period === 'AM' && hours === 12) hours = 0;
+
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+  };
+
+  const [startText, endText] = time.split('-').map(part => part.trim());
+  const startTime = to24Hour(startText || '');
+  const endTime = to24Hour(endText || '');
+
+  return {
+    startISO: startTime ? `${date}T${startTime}+05:30` : fallbackStart,
+    endISO: endTime ? `${date}T${endTime}+05:30` : fallbackEnd
+  };
+};
+
+const extractCalendarEventId = (data) => {
+  if (!data || typeof data !== 'object') return '';
+
+  return data.calendarEventId
+    || data.googleCalendarEventId
+    || data.eventId
+    || data.id
+    || data.googleCalendar?.eventId
+    || data.googleCalendar?.id
+    || data.calendar?.eventId
+    || data.calendar?.id
+    || '';
+};
+
+const updateAppointmentById = (appointmentId, updates) => {
+  const appointments = readJSON(APPOINTMENTS_FILE, []);
+  let updatedAppointment = null;
+  const nextAppointments = appointments.map(appointment => {
+    if (appointment.id !== appointmentId) return appointment;
+    updatedAppointment = { ...appointment, ...updates };
+    return updatedAppointment;
+  });
+
+  if (!updatedAppointment) return null;
+
+  writeJSON(APPOINTMENTS_FILE, nextAppointments);
+  return updatedAppointment;
+};
+
 // --- HELPER TO TRIGGER n8n AUTOMATION & WHATSAPP NOTIFICATIONS ---
-async function sendAutomationPayload(appointment) {
+async function sendAutomationPayload(appointment, eventName = 'appointment.created', cancelledBy = '') {
   const config = readJSON(CONFIG_FILE, DEFAULT_WHATSAPP_CONFIG);
   const logs = readJSON(LOGS_FILE, []);
+  const isCancellation = eventName === 'appointment.cancelled';
 
   const logEntry = {
     id: 'log_' + Date.now(),
@@ -184,6 +247,7 @@ async function sendAutomationPayload(appointment) {
     appointmentId: appointment.id,
     status: 'pending',
     provider: config.provider || 'n8n',
+    event: eventName,
     message: '',
     error: null
   };
@@ -208,13 +272,13 @@ async function sendAutomationPayload(appointment) {
     }
   } catch (e) {}
 
-  // ISO Timestamps for Google Calendar Integration
-  const startTimeStr = appointment.time ? appointment.time.split('-')[0].trim() : '10:00 AM';
-  const startISO = `${appointment.date}T10:00:00+05:30`;
-  const endISO = `${appointment.date}T11:00:00+05:30`;
+  const { startISO, endISO } = parseAppointmentSlot(appointment.date, appointment.time);
+  const clinicName = config.clinicDetails?.name || 'DermaCare Luxe Clinic';
+  const doctorName = config.clinicDetails?.doctorName || 'Dr. Priya Sharma';
+  const clinicPhone = config.clinicDetails?.phone || '+91 9157931095';
 
   const n8nPayload = {
-    event: 'appointment.created',
+    event: eventName,
     appointmentId: appointment.id,
     patientName: appointment.name,
     patientPhone: appointment.phone,
@@ -224,51 +288,75 @@ async function sendAutomationPayload(appointment) {
     rawDate: appointment.date,
     time: appointment.time,
     notes: appointment.notes || '',
-    status: appointment.status || 'Confirmed',
+    status: isCancellation ? 'Cancelled' : (appointment.status || 'Confirmed'),
+    cancelledBy,
     createdAt: appointment.createdAt,
+    cancelledAt: isCancellation ? new Date().toISOString() : appointment.cancelledAt,
+    calendarEventId: appointment.calendarEventId || '',
     clinic: {
-      name: config.clinicDetails?.name || 'DermaCare Luxe Clinic',
-      doctorName: config.clinicDetails?.doctorName || 'Dr. Priya Sharma',
-      phone: config.clinicDetails?.phone || '+91 9157931095'
+      name: clinicName,
+      doctorName,
+      phone: clinicPhone
     },
     googleCalendar: {
-      summary: `DermaCare Luxe: ${appointment.service} - ${appointment.name}`,
+      eventId: appointment.calendarEventId || '',
+      summary: `${clinicName}: ${appointment.service} - ${appointment.name}`,
       description: `Patient: ${appointment.name}\nPhone: ${appointment.phone}\nEmail: ${appointment.email || 'N/A'}\nService: ${appointment.service}\nNotes: ${appointment.notes || 'None'}`,
       startISO,
       endISO,
       timeZone: 'Asia/Kolkata'
     },
-    whatsappMessageBody: `Hello ${appointment.name},\n\nYour appointment at ${config.clinicDetails?.name || 'DermaCare Luxe'} is confirmed!\n\nBooking ID: ${appointment.id}\nDoctor: ${config.clinicDetails?.doctorName || 'Dr. Priya Sharma'}\nService: ${appointment.service}\nDate: ${formattedDate}\nTime: ${appointment.time}\n\nA calendar invite has been added for your visit. Thank you!`
+    whatsappMessageBody: isCancellation
+      ? `Hello ${appointment.name},\n\nYour appointment at ${clinicName} has been cancelled.\n\nBooking ID: ${appointment.id}\nDoctor: ${doctorName}\nService: ${appointment.service}\nDate: ${formattedDate}\nTime: ${appointment.time}\n\nThe calendar reminder has been removed. For help, call ${clinicPhone}.`
+      : `Hello ${appointment.name},\n\nYour appointment at ${clinicName} is confirmed!\n\nBooking ID: ${appointment.id}\nDoctor: ${doctorName}\nService: ${appointment.service}\nDate: ${formattedDate}\nTime: ${appointment.time}\n\nA calendar invite has been added for your visit. Thank you!`
   };
 
   logEntry.message = n8nPayload.whatsappMessageBody;
+  const webhookUrl = isCancellation && config.n8nCancelWebhookUrl
+    ? config.n8nCancelWebhookUrl
+    : config.n8nWebhookUrl;
 
   try {
-    if (config.provider === 'n8n' || config.n8nWebhookUrl) {
-      console.log(`[n8n Webhook Trigger]: Sending payload to ${config.n8nWebhookUrl}`);
+    if (config.provider === 'n8n' || webhookUrl) {
+      console.log(`[n8n Webhook Trigger]: Sending ${eventName} payload to ${webhookUrl}`);
       
       // Attempt n8n Webhook HTTP Call if valid URL provided
-      if (config.n8nWebhookUrl && config.n8nWebhookUrl.startsWith('http')) {
-        try {
-          const res = await fetch(config.n8nWebhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(n8nPayload)
-          });
-          console.log(`n8n response status: ${res.status}`);
-        } catch (fetchErr) {
-          console.log(`n8n URL unreachable in local dev mode (simulated payload):`, fetchErr.message);
-        }
+      if (!webhookUrl || !webhookUrl.startsWith('http')) {
+        throw new Error('Valid n8n webhook URL is not configured');
       }
 
+      const res = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(n8nPayload)
+      });
+      const responseText = await res.text();
+      let responseData = null;
+
+      try {
+        responseData = responseText ? JSON.parse(responseText) : null;
+      } catch (parseErr) {
+        responseData = { raw: responseText };
+      }
+
+      if (!res.ok) {
+        throw new Error(`n8n webhook failed with status ${res.status}`);
+      }
+
+      const calendarEventId = extractCalendarEventId(responseData);
       logEntry.status = 'success';
+      logEntry.calendarEventId = calendarEventId || appointment.calendarEventId || '';
       logs.unshift(logEntry);
       writeJSON(LOGS_FILE, logs.slice(0, 100));
       return {
         success: true,
         provider: 'n8n',
-        message: 'Payload delivered to n8n webhook (WhatsApp + Google Calendar triggered)',
-        payload: n8nPayload
+        message: isCancellation
+          ? 'Cancellation delivered to n8n webhook'
+          : 'Payload delivered to n8n webhook (WhatsApp + Google Calendar triggered)',
+        payload: n8nPayload,
+        response: responseData,
+        calendarEventId
       };
     } else {
       logEntry.status = 'success';
@@ -329,6 +417,12 @@ app.post('/api/appointments', async (req, res) => {
 
   // Trigger automated n8n Webhook / WhatsApp + Google Calendar
   const automationResult = await sendAutomationPayload(newAppointment);
+  if (automationResult.calendarEventId) {
+    newAppointment.calendarEventId = automationResult.calendarEventId;
+    updateAppointmentById(newAppointment.id, {
+      calendarEventId: automationResult.calendarEventId
+    });
+  }
 
   res.status(201).json({
     success: true,
@@ -338,18 +432,73 @@ app.post('/api/appointments', async (req, res) => {
   });
 });
 
-app.delete('/api/appointments/:id', (req, res) => {
+app.patch('/api/appointments/:id/calendar-event', (req, res) => {
   const { id } = req.params;
-  let appointments = readJSON(APPOINTMENTS_FILE, []);
-  const initialLength = appointments.length;
+  const { calendarEventId } = req.body;
 
-  appointments = appointments.filter(app => app.id !== id);
-  if (appointments.length === initialLength) {
+  if (!calendarEventId) {
+    return res.status(400).json({ success: false, error: 'calendarEventId is required' });
+  }
+
+  const updatedAppointment = updateAppointmentById(id, { calendarEventId });
+  if (!updatedAppointment) {
     return res.status(404).json({ success: false, error: 'Appointment not found' });
   }
 
+  res.json({
+    success: true,
+    message: 'Calendar event id saved',
+    appointment: updatedAppointment
+  });
+});
+
+app.patch('/api/appointments/:id/cancel', async (req, res) => {
+  const { id } = req.params;
+  const { cancelledBy = 'customer' } = req.body || {};
+  const appointments = readJSON(APPOINTMENTS_FILE, []);
+  const appointment = appointments.find(app => app.id === id);
+
+  if (!appointment) {
+    return res.status(404).json({ success: false, error: 'Appointment not found' });
+  }
+
+  const cancelledAppointment = updateAppointmentById(id, {
+    status: 'Cancelled',
+    cancelledBy,
+    cancelledAt: new Date().toISOString()
+  });
+  const automationResult = await sendAutomationPayload(cancelledAppointment, 'appointment.cancelled', cancelledBy);
+
+  res.json({
+    success: true,
+    message: 'Appointment cancelled successfully',
+    appointment: cancelledAppointment,
+    automation: automationResult
+  });
+});
+
+app.delete('/api/appointments/:id', async (req, res) => {
+  const { id } = req.params;
+  let appointments = readJSON(APPOINTMENTS_FILE, []);
+  const appointment = appointments.find(app => app.id === id);
+
+  if (!appointment) {
+    return res.status(404).json({ success: false, error: 'Appointment not found' });
+  }
+
+  const cancelledBy = req.query.cancelledBy || 'admin';
+  const automationResult = await sendAutomationPayload(
+    { ...appointment, status: 'Cancelled', cancelledAt: new Date().toISOString() },
+    'appointment.cancelled',
+    cancelledBy
+  );
+  appointments = appointments.filter(app => app.id !== id);
   writeJSON(APPOINTMENTS_FILE, appointments);
-  res.json({ success: true, message: 'Appointment deleted successfully' });
+  res.json({
+    success: true,
+    message: 'Appointment deleted and cancellation sent',
+    automation: automationResult
+  });
 });
 
 app.get('/api/whatsapp/config', (req, res) => {

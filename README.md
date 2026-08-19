@@ -1,5 +1,9 @@
 # React + Vite
 
+## n8n Booking Automation
+
+Appointment booking now supports n8n automation for email, WhatsApp, Google Calendar creation, and calendar deletion on cancellation. See `docs/n8n-booking-automation.md` for the payload contract and n8n workflow steps.
+
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
 Currently, two official plugins are available:

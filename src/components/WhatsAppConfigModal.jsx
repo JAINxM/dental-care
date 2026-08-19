@@ -3,9 +3,10 @@ import { X, Settings, Server, Check, RefreshCw, Zap, Calendar, MessageSquare, Co
 
 export default function WhatsAppConfigModal({ isOpen, onClose }) {
   const [config, setConfig] = useState({
-    enabled: true,
+    enabled: false,
     provider: 'n8n',
-    n8nWebhookUrl: 'https://n8n.your-domain.com/webhook/dermacare-booking',
+    n8nWebhookUrl: '',
+    n8nCancelWebhookUrl: '',
     twilio: {
       accountSid: '',
       authToken: '',
@@ -103,6 +104,7 @@ export default function WhatsAppConfigModal({ isOpen, onClose }) {
     rawDate: "2026-08-20",
     time: "11:30 AM - 12:30 PM",
     googleCalendar: {
+      eventId: "",
       summary: "DermaCare Luxe: Acne & Scar Treatment - Ananya Mehta",
       description: "Patient: Ananya Mehta\nPhone: +919876543210\nTreatment: Acne & Scar Treatment",
       startISO: "2026-08-20T11:30:00+05:30",
@@ -212,6 +214,7 @@ export default function WhatsAppConfigModal({ isOpen, onClose }) {
               </div>
 
               <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Booking Created Webhook</label>
                 <input
                   type="url"
                   placeholder="https://n8n.your-domain.com/webhook/dermacare-booking"
@@ -219,6 +222,20 @@ export default function WhatsAppConfigModal({ isOpen, onClose }) {
                   onChange={e => setConfig({ ...config, n8nWebhookUrl: e.target.value, provider: 'n8n' })}
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-mono bg-white focus:border-[#14B8A6] outline-none"
                 />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Booking Cancelled Webhook (optional)</label>
+                <input
+                  type="url"
+                  placeholder="Leave blank to use same webhook"
+                  value={config.n8nCancelWebhookUrl || ''}
+                  onChange={e => setConfig({ ...config, n8nCancelWebhookUrl: e.target.value, provider: 'n8n' })}
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-mono bg-white focus:border-[#14B8A6] outline-none"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Use one webhook with `event` routing, or set a separate cancellation workflow URL.
+                </p>
               </div>
 
               <div className="flex items-center justify-between pt-2">
@@ -270,7 +287,14 @@ export default function WhatsAppConfigModal({ isOpen, onClose }) {
                   <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center">2</div>
                   <h5 className="font-bold text-xs text-[#0B1E36]">Google Calendar Event Node</h5>
                   <p className="text-[11px] text-slate-500 font-light leading-relaxed">
-                    n8n uses the `googleCalendar` object (`summary`, `startISO`, `endISO`) to auto-create an event in Dr. Priya's Google Calendar!
+                    n8n uses `googleCalendar` to create an event and should return `calendarEventId` so cancellation can delete the same event.
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-2">
+                  <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 font-bold text-xs flex items-center justify-center">3</div>
+                  <h5 className="font-bold text-xs text-[#0B1E36]">Cancellation Router</h5>
+                  <p className="text-[11px] text-slate-500 font-light leading-relaxed">
+                    When payload `event` is `appointment.cancelled`, n8n deletes `calendarEventId` and sends cancellation updates.
                   </p>
                 </div>
               </div>
@@ -372,7 +396,7 @@ export default function WhatsAppConfigModal({ isOpen, onClose }) {
                       <span className={`px-2 py-0.5 rounded-full text-[10px] ${
                         log.status === 'success' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
                       }`}>
-                        {log.provider}: {log.status}
+                        {log.event || 'notification'}: {log.status}
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-500 font-mono truncate">{log.message}</div>
