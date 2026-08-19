@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -233,6 +234,37 @@ const updateAppointmentById = (appointmentId, updates) => {
   return updatedAppointment;
 };
 
+const getBearerToken = (authorizationHeader = '') => {
+  const match = authorizationHeader.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : '';
+};
+
+const secureCompare = (a, b) => {
+  const aBuffer = Buffer.from(a);
+  const bBuffer = Buffer.from(b);
+
+  return aBuffer.length === bBuffer.length && crypto.timingSafeEqual(aBuffer, bBuffer);
+};
+
+const requireN8nBackendToken = (req, res, next) => {
+  const expectedToken = process.env.N8N_BACKEND_TOKEN;
+
+  if (!expectedToken) {
+    return res.status(503).json({
+      success: false,
+      error: 'N8N_BACKEND_TOKEN is not configured on the backend'
+    });
+  }
+
+  const token = getBearerToken(req.get('authorization'));
+
+  if (!token || !secureCompare(token, expectedToken)) {
+    return res.status(401).json({ success: false, error: 'Invalid n8n backend token' });
+  }
+
+  next();
+};
+
 // --- HELPER TO TRIGGER n8n AUTOMATION & WHATSAPP NOTIFICATIONS ---
 async function sendAutomationPayload(appointment, eventName = 'appointment.created', cancelledBy = '') {
   const config = readJSON(CONFIG_FILE, DEFAULT_WHATSAPP_CONFIG);
@@ -432,23 +464,27 @@ app.post('/api/appointments', async (req, res) => {
   });
 });
 
-app.patch('/api/appointments/:id/calendar-event', (req, res) => {
+app.patch('/api/appointments/:id/calendar-event', requireN8nBackendToken, (req, res) => {
   const { id } = req.params;
   const { calendarEventId } = req.body;
 
-  if (!calendarEventId) {
+  if (!id || typeof id !== 'string') {
+    return res.status(400).json({ success: false, error: 'appointment id is required' });
+  }
+
+  if (typeof calendarEventId !== 'string' || !calendarEventId.trim()) {
     return res.status(400).json({ success: false, error: 'calendarEventId is required' });
   }
 
-  const updatedAppointment = updateAppointmentById(id, { calendarEventId });
+  const updatedAppointment = updateAppointmentById(id, { calendarEventId: calendarEventId.trim() });
   if (!updatedAppointment) {
     return res.status(404).json({ success: false, error: 'Appointment not found' });
   }
 
   res.json({
     success: true,
-    message: 'Calendar event id saved',
-    appointment: updatedAppointment
+    appointmentId: updatedAppointment.id,
+    calendarEventId: updatedAppointment.calendarEventId
   });
 });
 

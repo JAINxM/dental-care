@@ -1,5 +1,42 @@
 [
   {
+    "id": "log_1787158198169",
+    "timestamp": "2026-08-19T16:49:58.169Z",
+    "patientName": "Raval Jainam",
+    "patientPhone": "1234561230",
+    "appointmentId": "DML-111086",
+    "status": "success",
+    "provider": "meta",
+    "event": "appointment.created",
+    "message": "Hello Raval Jainam,\n\nYour appointment at DermaCare Luxe Clinic is confirmed!\n\nBooking ID: DML-111086\nDoctor: Dr. Priya Sharma\nService: Acne & Scar Treatment\nDate: Wednesday, 19 August 2026\nTime: 10:00 AM - 11:00 AM\n\nA calendar invite has been added for your visit. Thank you!",
+    "error": null,
+    "calendarEventId": ""
+  },
+  {
+    "id": "log_1787158145125",
+    "timestamp": "2026-08-19T16:49:05.125Z",
+    "patientName": "Raval Jainam",
+    "patientPhone": "1234567890",
+    "appointmentId": "DML-257204",
+    "status": "failed",
+    "provider": "meta",
+    "event": "appointment.created",
+    "message": "Hello Raval Jainam,\n\nYour appointment at DermaCare Luxe Clinic is confirmed!\n\nBooking ID: DML-257204\nDoctor: Dr. Priya Sharma\nService: Acne & Scar Treatment\nDate: Wednesday, 19 August 2026\nTime: 10:00 AM - 11:00 AM\n\nA calendar invite has been added for your visit. Thank you!",
+    "error": "n8n webhook failed with status 404"
+  },
+  {
+    "id": "log_1787157857015",
+    "timestamp": "2026-08-19T16:44:17.015Z",
+    "patientName": "harsh",
+    "patientPhone": "1478523690",
+    "appointmentId": "DML-308606",
+    "status": "failed",
+    "provider": "meta",
+    "event": "appointment.created",
+    "message": "Hello harsh,\n\nYour appointment at DermaCare Luxe Clinic is confirmed!\n\nBooking ID: DML-308606\nDoctor: Dr. Priya Sharma\nService: Hair Loss Therapy (PRP)\nDate: Wednesday, 19 August 2026\nTime: 04:00 PM - 05:00 PM\n\nA calendar invite has been added for your visit. Thank you!",
+    "error": "n8n webhook failed with status 404"
+  },
+  {
     "id": "log_1787156722821",
     "timestamp": "2026-08-19T16:25:22.821Z",
     "patientName": "Raval Jainam",

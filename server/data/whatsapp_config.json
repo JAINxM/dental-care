@@ -1,11 +1,11 @@
 {
   "enabled": true,
   "provider": "meta",
-  "n8nWebhookUrl": "https://ravaljainam.app.n8n.cloud/webhook-test/booking-appointment",
+  "n8nWebhookUrl": "https://ravaljainam.app.n8n.cloud/webhook-test/dermacare/booking-created",
   "twilio": {
     "accountSid": "",
     "authToken": "",
-    "senderNumber": "whatsapp:+14155238886"
+    "senderNumber": "whatsapp:+919104422691"
   },
   "meta": {
     "accessToken": "",
@@ -21,5 +21,5 @@
     "doctorName": "Dr. Priya Sharma",
     "phone": "+91 9157931095"
   },
-  "n8nCancelWebhookUrl": ""
+  "n8nCancelWebhookUrl": "https://ravaljainam.app.n8n.cloud/webhook-test/dermacare/booking-cancelled"
 }

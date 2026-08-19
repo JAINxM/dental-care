@@ -61,13 +61,32 @@ The final n8n response should include one of these fields:
 The backend automatically saves that id against the appointment. If your n8n flow cannot respond with the id, call this backend endpoint after creating the Google Calendar event:
 
 ```http
-PATCH /api/appointments/DML-351281/calendar-event
+PATCH https://YOUR-ACTUAL-BACKEND-DOMAIN/api/appointments/DML-351281/calendar-event
+Authorization: Bearer <N8N_BACKEND_TOKEN>
 Content-Type: application/json
 
 {
   "calendarEventId": "google-calendar-event-id"
 }
 ```
+
+Set `N8N_BACKEND_TOKEN` only on the Express backend environment. Do not add it to React, Vite, or any frontend environment variable. In n8n, configure the HTTP Request node with:
+
+- Method: `PATCH`
+- URL: `https://YOUR-ACTUAL-BACKEND-DOMAIN/api/appointments/{{$json.appointmentId}}/calendar-event`
+- Authentication: none/manual header
+- Header `Authorization`: `Bearer <N8N_BACKEND_TOKEN>`
+- Header `Content-Type`: `application/json`
+- Body type: JSON
+- Body:
+
+```json
+{
+  "calendarEventId": "={{$json.calendarEventId || $json.id || $json.eventId}}"
+}
+```
+
+Replace `YOUR-ACTUAL-BACKEND-DOMAIN` with the public URL where the Express API is reachable. It must be the backend/API domain, not a frontend-only domain or a local `localhost` URL.
 
 ## Booking Cancelled Payload
 
