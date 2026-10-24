@@ -49,8 +49,8 @@ const writeJSON = (filePath, data) => {
 const DEFAULT_WHATSAPP_CONFIG = {
   enabled: false,
   provider: 'n8n', // Default to n8n for full WhatsApp + Google Calendar automation
-  n8nWebhookUrl: '',
-  n8nCancelWebhookUrl: '',
+  n8nWebhookUrl: 'https://diri6045.app.n8n.cloud/webhook/booking request',
+  n8nCancelWebhookUrl: 'https://diri6045.app.n8n.cloud/webhook/cancel-booking',
   twilio: {
     accountSid: '',
     authToken: '',
@@ -302,7 +302,7 @@ async function sendAutomationPayload(appointment, eventName = 'appointment.creat
         day: 'numeric'
       });
     }
-  } catch (e) {}
+  } catch (e) { }
 
   const { startISO, endISO } = parseAppointmentSlot(appointment.date, appointment.time);
   const clinicName = config.clinicDetails?.name || 'DermaCare Luxe Clinic';
@@ -351,7 +351,7 @@ async function sendAutomationPayload(appointment, eventName = 'appointment.creat
   try {
     if (config.provider === 'n8n' || webhookUrl) {
       console.log(`[n8n Webhook Trigger]: Sending ${eventName} payload to ${webhookUrl}`);
-      
+
       // Attempt n8n Webhook HTTP Call if valid URL provided
       if (!webhookUrl || !webhookUrl.startsWith('http')) {
         throw new Error('Valid n8n webhook URL is not configured');

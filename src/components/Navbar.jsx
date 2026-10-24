@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Calendar, Settings, Menu, X } from 'lucide-react';
+import { Sparkles, Calendar, Menu, X } from 'lucide-react';
 
 export default function Navbar({ onBookClick, onAdminClick }) {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -67,18 +67,6 @@ export default function Navbar({ onBookClick, onAdminClick }) {
         {/* Action Buttons */}
         <div className="hidden md:flex items-center gap-3">
           <button
-            onClick={onAdminClick}
-            title="Admin WhatsApp Settings"
-            className={`p-2.5 rounded-full border transition-all ${
-              isScrolled
-                ? 'border-white/10 text-slate-300 hover:bg-white/10'
-                : 'border-slate-300 text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-
-          <button
             onClick={onBookClick}
             className="flex items-center gap-2 bg-gradient-to-r from-[#DFBA84] to-[#C59B62] text-[#0B1E36] font-semibold text-sm px-5 py-2.5 rounded-full shadow-md hover:shadow-lg hover:brightness-105 transition-all"
           >
@@ -117,18 +105,6 @@ export default function Navbar({ onBookClick, onAdminClick }) {
               {item.label}
             </a>
           ))}
-          <div className="pt-4 border-t border-white/10 flex items-center justify-between">
-            <button
-              onClick={() => {
-                setMobileMenuOpen(false);
-                onAdminClick();
-              }}
-              className="flex items-center gap-2 text-sm text-slate-300 hover:text-white"
-            >
-              <Settings className="w-4 h-4" />
-              WhatsApp Admin Gateway
-            </button>
-          </div>
         </div>
       )}
     </header>

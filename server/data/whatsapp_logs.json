@@ -1,5 +1,17 @@
 [
   {
+    "id": "log_1792834412189",
+    "timestamp": "2026-10-24T09:33:32.189Z",
+    "patientName": "Raval Jainam",
+    "patientPhone": "7412589630",
+    "appointmentId": "DML-258807",
+    "status": "failed",
+    "provider": "meta",
+    "event": "appointment.created",
+    "message": "Hello Raval Jainam,\n\nYour appointment at DermaCare Luxe Clinic is confirmed!\n\nBooking ID: DML-258807\nDoctor: Dr. Priya Sharma\nService: Laser Resurfacing\nDate: Thursday, 29 October 2026\nTime: 04:00 PM - 05:00 PM\n\nA calendar invite has been added for your visit. Thank you!",
+    "error": "n8n webhook failed with status 404"
+  },
+  {
     "id": "log_1787158198169",
     "timestamp": "2026-08-19T16:49:58.169Z",
     "patientName": "Raval Jainam",
