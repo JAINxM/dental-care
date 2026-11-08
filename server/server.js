@@ -42,6 +42,14 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: '32kb' }));
+
+// Ensure paths match /api routes when hosted on serverless platforms (Vercel)
+app.use((req, res, next) => {
+  if (req.url && !req.url.startsWith('/api')) {
+    req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
+  }
+  next();
+});
 app.use(session({
   store: new PgSession({ pool, tableName: 'sessions', createTableIfMissing: true }),
   name: 'clinic.sid',
@@ -645,9 +653,14 @@ const dispatchOutbox = async () => {
     }
   } catch(error) { if(error.code!=='42P01')console.error('Outbox poll failed:',error.message); }
 };
-setInterval(dispatchOutbox, 30000).unref();
-dispatchOutbox();
 
-app.listen(PORT, () => {
-  console.log(`DermaCare Luxe Node.js Backend listening on http://localhost:${PORT}`);
-});
+if (!process.env.VERCEL) {
+  setInterval(dispatchOutbox, 30000).unref();
+  dispatchOutbox();
+
+  app.listen(PORT, () => {
+    console.log(`DermaCare Luxe Node.js Backend listening on http://localhost:${PORT}`);
+  });
+}
+
+export default app;

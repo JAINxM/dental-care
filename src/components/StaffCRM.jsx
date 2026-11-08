@@ -3,7 +3,13 @@ import { CalendarDays, Users, ClipboardList, Bell, Search, LogOut, Check, X, Lay
 
 const request = async (url, options) => {
   const res = await fetch(url, { credentials: 'same-origin', ...options });
-  const data = await res.json().catch(() => ({}));
+  const text = await res.text().catch(() => '');
+  let data = {};
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { error: !res.ok ? `Server error (${res.status}): Please check backend deployment & DATABASE_URL` : 'Invalid response from server' };
+  }
   if (!res.ok) throw new Error(data.error || 'Request failed');
   return data;
 };

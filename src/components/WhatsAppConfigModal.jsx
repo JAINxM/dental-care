@@ -37,7 +37,8 @@ export default function WhatsAppConfigModal({ isOpen, onClose }) {
   const fetchConfig = async () => {
     try {
       const res = await fetch('/api/whatsapp/config', { credentials: 'same-origin' });
-      const data = await res.json();
+      const text = await res.text().catch(() => '');
+      const data = JSON.parse(text);
       if (data.success && data.data) {
         setConfig(prev => ({ ...prev, ...data.data }));
       }
@@ -49,7 +50,8 @@ export default function WhatsAppConfigModal({ isOpen, onClose }) {
   const fetchLogs = async () => {
     try {
       const res = await fetch('/api/whatsapp/logs', { credentials: 'same-origin' });
-      const data = await res.json();
+      const text = await res.text().catch(() => '');
+      const data = JSON.parse(text);
       if (data.success && data.data) {
         setLogs(data.data);
       }

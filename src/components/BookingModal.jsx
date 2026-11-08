@@ -239,7 +239,9 @@ export default function BookingModal({ isOpen, onClose, initialService = '' }) {
       });
       clearTimeout(timer);
 
-      const payload = await res.json().catch(() => null);
+      const text = await res.text().catch(() => '');
+      let payload = null;
+      try { payload = JSON.parse(text); } catch { payload = null; }
       const result = Array.isArray(payload) ? payload[0] : payload;
 
       if (res.status === 401 || res.status === 403) {
@@ -251,8 +253,8 @@ export default function BookingModal({ isOpen, onClose, initialService = '' }) {
 
       if (!res.ok || !result) {
         setErrorMessage(
-          result?.message || result?.validation_error ||
-          "The clinic couldn't process your request. Please check your details and try again."
+          result?.message || result?.validation_error || result?.error ||
+          (!res.ok ? `Server error (${res.status}): Please check backend deployment & DATABASE_URL` : "The clinic couldn't process your request. Please check your details and try again.")
         );
         setViewState('error');
         return;
