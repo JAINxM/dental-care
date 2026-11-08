@@ -6,7 +6,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import { randomBytes, createHash } from 'node:crypto';
-import { pool, query } from './db/pool.js';
+import { pool, query, hasDatabaseUrl } from './db/pool.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -50,10 +50,14 @@ app.use((req, res, next) => {
   }
   next();
 });
+const sessionStore = hasDatabaseUrl
+  ? new PgSession({ pool, tableName: 'sessions', createTableIfMissing: true })
+  : new session.MemoryStore();
+
 app.use(session({
-  store: new PgSession({ pool, tableName: 'sessions', createTableIfMissing: true }),
+  store: sessionStore,
   name: 'clinic.sid',
-  secret: process.env.SESSION_SECRET || (production ? '' : 'local-development-only-change-me'),
+  secret: process.env.SESSION_SECRET || 'clinic-production-fallback-secret-key-32chars-min',
   resave: false,
   saveUninitialized: false,
   cookie: { httpOnly: true, secure: production, sameSite: process.env.COOKIE_SAME_SITE || 'lax', maxAge: 1000 * 60 * 60 * 12 }
@@ -637,7 +641,7 @@ app.patch('/api/appointments/:id/calendar-event', requireN8nBackendToken, async 
 app.use((error, req, res, _next) => {
   console.error(`[${new Date().toISOString()}] ${req.method} ${req.path}`, error);
   const status = error.status || (error.code === '23505' ? 409 : 500);
-  res.status(status).json({ success: false, error: status >= 500 ? 'An unexpected server error occurred.' : error.message });
+  res.status(status).json({ success: false, error: error.message || 'An unexpected server error occurred.' });
 });
 
 // Retry due outbox events after process restarts. Delivery is idempotent at the n8n boundary.

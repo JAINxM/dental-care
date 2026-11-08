@@ -8,8 +8,10 @@ try {
 } catch (e) {}
 
 const { Pool } = pg;
-if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL must be configured in production');
+
+export const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
+if (!hasDatabaseUrl && process.env.NODE_ENV === 'production') {
+  console.warn('[DB WARNING]: DATABASE_URL is not set in Vercel Environment Variables. Database features will be unavailable until DATABASE_URL is configured.');
 }
 
 const connectionString = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/dermacare';
@@ -23,8 +25,14 @@ const isRemoteOrSupabase =
 export const pool = new Pool({
   connectionString,
   ssl: isRemoteOrSupabase ? { rejectUnauthorized: false } : undefined,
-  max: 10,
-  idleTimeoutMillis: 30000
+  max: process.env.VERCEL ? 2 : 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000
 });
 
-export const query = (text, params) => pool.query(text, params);
+export const query = (text, params) => {
+  if (!hasDatabaseUrl && process.env.NODE_ENV === 'production') {
+    return Promise.reject(Object.assign(new Error('DATABASE_URL is not configured in Vercel Environment Variables. Please add your Supabase connection string to Vercel Project Settings -> Environment Variables.'), { status: 503 }));
+  }
+  return pool.query(text, params);
+};
