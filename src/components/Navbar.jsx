@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Sparkles, Calendar, Menu, X } from 'lucide-react';
 
-export default function Navbar({ onBookClick, onAdminClick }) {
+export default function Navbar({ onBookClick }) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 

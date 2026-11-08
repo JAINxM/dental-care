@@ -8,8 +8,8 @@ export const CONFIG = {
   // Paste your n8n PRODUCTION webhook URL here after you activate
   // the workflow. It will look like:
   // https://your-instance.app.n8n.cloud/webhook/booking request
-  webhookUrl: "https://diri6045.app.n8n.cloud/webhook/booking request",
-  cancelWebhookUrl: "https://diri6045.app.n8n.cloud/webhook/cancel-booking",
+  webhookUrl: "/api/appointments",
+  cancelWebhookUrl: "/api/appointments",
 
   business: {
     icon: "🦷",
@@ -138,6 +138,26 @@ export default function BookingModal({ isOpen, onClose, initialService = '' }) {
   const [successData, setSuccessData] = useState(null); // { result, data }
   const [cancelStatus, setCancelStatus] = useState('');
   const [cancelling, setCancelling] = useState(false);
+  const [accountState, setAccountState] = useState('checking');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+    fetch('/api/auth/me', { credentials: 'same-origin' })
+      .then(response => response.json())
+      .then(async result => {
+        if (!active) return;
+        if (result.success && result.user?.role === 'patient') {
+          setAccountState('patient');
+          setFormData(prev => ({ ...prev, client_name: result.user.name || prev.client_name, client_email: result.user.email || prev.client_email }));
+          const profileResponse = await fetch('/api/patient/profile', { credentials: 'same-origin' });
+          const profile = await profileResponse.json().catch(() => ({}));
+          if (active && profile.success) setFormData(prev => ({ ...prev, client_phone: profile.data.phone || prev.client_phone }));
+        } else setAccountState('required');
+      })
+      .catch(() => { if (active) setAccountState('required'); });
+    return () => { active = false; };
+  }, [isOpen]);
 
   // Sync initial service
   useEffect(() => {
@@ -194,6 +214,12 @@ export default function BookingModal({ isOpen, onClose, initialService = '' }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (accountState !== 'patient') {
+      setErrorMessage('Please sign in or create a patient account before booking.');
+      setViewState('error');
+      return;
+    }
+
     if (!validateForm(formData)) return;
 
     setLoading(true);
@@ -207,13 +233,21 @@ export default function BookingModal({ isOpen, onClose, initialService = '' }) {
       const res = await fetch(CONFIG.webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        credentials: "same-origin",
+        body: JSON.stringify({ name: formData.client_name, email: formData.client_email, phone: formData.client_phone, service: formData.service_type, date: formData.preferred_date, time: formData.preferred_time, notes: formData.message }),
         signal: controller.signal
       });
       clearTimeout(timer);
 
       const payload = await res.json().catch(() => null);
       const result = Array.isArray(payload) ? payload[0] : payload;
+
+      if (res.status === 401 || res.status === 403) {
+        setAccountState('required');
+        setErrorMessage('Please sign in or create a patient account before booking.');
+        setViewState('error');
+        return;
+      }
 
       if (!res.ok || !result) {
         setErrorMessage(
@@ -224,10 +258,10 @@ export default function BookingModal({ isOpen, onClose, initialService = '' }) {
         return;
       }
 
-      if (result.available === false) {
+      if (result.success === false || result.available === false) {
         // Conflict
         setConflictData({
-          message: result.validation_error || "That time is already booked. Pick an available alternative below.",
+          message: result.error || result.validation_error || "That time is already requested. Pick another available time.",
           suggestedSlots: Array.isArray(result.suggestedSlots) ? result.suggestedSlots : []
         });
         setFieldErrors(prev => ({
@@ -238,7 +272,7 @@ export default function BookingModal({ isOpen, onClose, initialService = '' }) {
       }
 
       // Success
-      setSuccessData({ result, data: { ...formData } });
+      setSuccessData({ result: { ...result.appointment, booking_id: result.appointment.id, pending: true }, data: { ...formData } });
       setViewState('success');
 
     } catch (err) {
@@ -270,18 +304,17 @@ export default function BookingModal({ isOpen, onClose, initialService = '' }) {
     setCancelStatus('');
 
     try {
-      const params = new URLSearchParams({
-        booking_id: successData.result.booking_id,
-        ...successData.data
-      });
-      const res = await fetch(`${CONFIG.cancelWebhookUrl}?${params.toString()}`, {
-        method: "GET"
+      const res = await fetch(`${CONFIG.cancelWebhookUrl}/${successData.result.booking_id}/cancel`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({})
       });
       const payload = await res.json().catch(() => null);
       const result = Array.isArray(payload) ? payload[0] : payload;
 
       if (!res.ok || result?.cancelled === false || result?.canceled === false) {
-        throw new Error(result?.message || "The appointment could not be cancelled.");
+        if (!res.ok) throw new Error(result?.error || "The appointment could not be cancelled.");
       }
 
       setCancelStatus(result?.message || "Appointment cancelled successfully.");
@@ -357,6 +390,19 @@ export default function BookingModal({ isOpen, onClose, initialService = '' }) {
                 {CONFIG.business.tagline} • {CONFIG.business.location}
               </p>
             </div>
+
+            {accountState === 'checking' ? (
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600">Checking your patient account…</div>
+            ) : accountState !== 'patient' ? (
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-sm text-[#0B1E36]">
+                <strong>Patient account required</strong>
+                <p className="mt-1 text-xs text-slate-600">Sign in or register before requesting an appointment. Your booking will be linked to your account.</p>
+                <div className="mt-3 flex gap-3 text-xs font-semibold">
+                  <a className="text-teal-700 underline" href="/patient-login">Patient login</a>
+                  <a className="text-teal-700 underline" href="/patient-register">Create account</a>
+                </div>
+              </div>
+            ) : null}
 
             {/* Conflict / Alt Slots Box */}
             {conflictData && (
@@ -537,7 +583,7 @@ export default function BookingModal({ isOpen, onClose, initialService = '' }) {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading || availableSlots.length === 0}
+              disabled={loading || availableSlots.length === 0 || accountState !== 'patient'}
               className="w-full py-3.5 rounded-full bg-[#0B1E36] text-[#DFBA84] font-bold text-sm shadow-xl hover:bg-[#14B8A6] hover:text-white transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {loading ? (

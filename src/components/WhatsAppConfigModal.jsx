@@ -36,7 +36,7 @@ export default function WhatsAppConfigModal({ isOpen, onClose }) {
 
   const fetchConfig = async () => {
     try {
-      const res = await fetch('/api/whatsapp/config');
+      const res = await fetch('/api/whatsapp/config', { credentials: 'same-origin' });
       const data = await res.json();
       if (data.success && data.data) {
         setConfig(prev => ({ ...prev, ...data.data }));
@@ -48,7 +48,7 @@ export default function WhatsAppConfigModal({ isOpen, onClose }) {
 
   const fetchLogs = async () => {
     try {
-      const res = await fetch('/api/whatsapp/logs');
+      const res = await fetch('/api/whatsapp/logs', { credentials: 'same-origin' });
       const data = await res.json();
       if (data.success && data.data) {
         setLogs(data.data);
@@ -67,6 +67,7 @@ export default function WhatsAppConfigModal({ isOpen, onClose }) {
       await fetch('/api/whatsapp/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify(config)
       });
       setSavedSuccess(true);
@@ -82,7 +83,7 @@ export default function WhatsAppConfigModal({ isOpen, onClose }) {
     setTestingN8n(true);
     setTestResult(null);
     try {
-      const res = await fetch('/api/n8n/test', { method: 'POST' });
+      const res = await fetch('/api/n8n/test', { method: 'POST', credentials: 'same-origin' });
       const data = await res.json();
       setTestResult(data.result);
       fetchLogs();

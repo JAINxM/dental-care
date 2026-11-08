@@ -1,8 +1,13 @@
 import express from 'express';
+import session from 'express-session';
+import connectPgSimple from 'connect-pg-simple';
 import cors from 'cors';
-import fs from 'fs';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import bcrypt from 'bcryptjs';
+import { randomBytes, createHash } from 'node:crypto';
+import { pool, query } from './db/pool.js';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -10,66 +15,118 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const PgSession = connectPgSimple(session);
+const production = process.env.NODE_ENV === 'production';
+app.set('trust proxy', 1);
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
-app.use(cors());
-app.use(express.json());
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:5000',
+  'http://127.0.0.1:5000',
+  ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()) : []),
+  ...(process.env.CLIENT_URL ? [process.env.CLIENT_URL.trim()] : [])
+].filter(Boolean);
 
-const DATA_DIR = path.join(__dirname, 'data');
-const APPOINTMENTS_FILE = path.join(DATA_DIR, 'appointments.json');
-const CONFIG_FILE = path.join(DATA_DIR, 'whatsapp_config.json');
-const LOGS_FILE = path.join(DATA_DIR, 'whatsapp_logs.json');
-
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-const readJSON = (filePath, fallback = []) => {
-  try {
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, 'utf8');
-      return JSON.parse(content);
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (!production) return callback(null, true);
+    if (allowedOrigins.some(ao => origin === ao || origin.startsWith(ao))) {
+      return callback(null, true);
     }
-  } catch (err) {
-    console.error(`Error reading ${filePath}:`, err);
-  }
-  return fallback;
-};
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true
+}));
 
-const writeJSON = (filePath, data) => {
+app.use(express.json({ limit: '32kb' }));
+app.use(session({
+  store: new PgSession({ pool, tableName: 'sessions', createTableIfMissing: true }),
+  name: 'clinic.sid',
+  secret: process.env.SESSION_SECRET || (production ? '' : 'local-development-only-change-me'),
+  resave: false,
+  saveUninitialized: false,
+  cookie: { httpOnly: true, secure: production, sameSite: process.env.COOKIE_SAME_SITE || 'lax', maxAge: 1000 * 60 * 60 * 12 }
+}));
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false });
+
+const PUBLIC_AUTH_ROUTES = [
+  '/api/auth/login',
+  '/api/auth/staff-login',
+  '/api/auth/register',
+  '/api/auth/forgot-password',
+  '/api/auth/reset-password'
+];
+
+const csrfProtect = (req, res, next) => {
+  // Safe HTTP methods do not mutate state
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+
+  // Public authentication routes are establishing credentials; don't block with stale session checks
+  if (PUBLIC_AUTH_ROUTES.includes(req.path)) return next();
+
+  // If no user session is present, no authenticated session can be hijacked
+  if (!req.session?.user) return next();
+
+  const origin = req.get('origin') || req.get('referer');
+  if (!origin) return next();
+
   try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
-    return true;
-  } catch (err) {
-    console.error(`Error writing ${filePath}:`, err);
-    return false;
+    const originUrl = new URL(origin);
+    const originHost = originUrl.host;
+    const originHostname = originUrl.hostname;
+
+    const host = req.get('host');
+    const forwardedHost = req.get('x-forwarded-host');
+    const reqHostname = req.hostname;
+
+    // Direct host match
+    if (originHost === host) return next();
+
+    // Forwarded host match (e.g. through Vite proxy or reverse proxy)
+    if (forwardedHost) {
+      const forwardedHosts = forwardedHost.split(',').map(h => h.trim());
+      if (forwardedHosts.includes(originHost)) return next();
+    }
+
+    // In local development, allow requests between localhost/loopback ports
+    const isLocalOrigin = ['localhost', '127.0.0.1', '::1'].includes(originHostname);
+    const isLocalReq = ['localhost', '127.0.0.1', '::1'].includes(reqHostname);
+    if (!production && isLocalOrigin && isLocalReq) {
+      return next();
+    }
+
+    // Configured allowed origins from environment
+    if (allowedOrigins.some(allowed => {
+      try {
+        const allowedUrl = new URL(allowed);
+        return originUrl.origin === allowedUrl.origin;
+      } catch {
+        return originHost === allowed || originHostname === allowed;
+      }
+    })) {
+      return next();
+    }
+
+    return res.status(403).json({ success: false, error: 'Origin check failed.' });
+  } catch {
+    return res.status(403).json({ success: false, error: 'Origin check failed.' });
   }
 };
+app.use(csrfProtect);
 
 // Default WhatsApp & Automation Configuration
 const DEFAULT_WHATSAPP_CONFIG = {
-  enabled: false,
-  provider: 'n8n', // Default to n8n for full WhatsApp + Google Calendar automation
-  n8nWebhookUrl: 'https://diri6045.app.n8n.cloud/webhook/booking request',
-  n8nCancelWebhookUrl: 'https://diri6045.app.n8n.cloud/webhook/cancel-booking',
-  twilio: {
-    accountSid: '',
-    authToken: '',
-    senderNumber: 'whatsapp:+14155238886'
-  },
-  meta: {
-    accessToken: '',
-    phoneNumberId: '',
-    templateName: 'appointment_confirmation',
-    languageCode: 'en_US'
-  },
-  custom: {
-    endpoint: ''
-  },
-  clinicDetails: {
-    name: 'DermaCare Luxe Clinic',
-    doctorName: 'Dr. Priya Sharma',
-    phone: '+91 9157931095'
-  }
+  enabled: Boolean(process.env.N8N_BOOKING_WEBHOOK), provider: 'n8n',
+  n8nWebhookUrl: process.env.N8N_BOOKING_WEBHOOK || '',
+  n8nCancelWebhookUrl: process.env.N8N_CANCEL_WEBHOOK || '',
+  clinicDetails: { name: 'DermaCare Luxe Clinic', doctorName: 'Dr. Priya Sharma', phone: '+91 9157931095' }
+};
+const getAutomationConfig = async () => {
+  const result = await query("SELECT value FROM app_settings WHERE key = 'automation_config'");
+  return { ...DEFAULT_WHATSAPP_CONFIG, ...(result.rows[0]?.value || {}) };
 };
 
 const SERVICES_DATA = [
@@ -219,31 +276,9 @@ const extractCalendarEventId = (data) => {
     || '';
 };
 
-const updateAppointmentById = (appointmentId, updates) => {
-  const appointments = readJSON(APPOINTMENTS_FILE, []);
-  let updatedAppointment = null;
-  const nextAppointments = appointments.map(appointment => {
-    if (appointment.id !== appointmentId) return appointment;
-    updatedAppointment = { ...appointment, ...updates };
-    return updatedAppointment;
-  });
-
-  if (!updatedAppointment) return null;
-
-  writeJSON(APPOINTMENTS_FILE, nextAppointments);
-  return updatedAppointment;
-};
-
 const getBearerToken = (authorizationHeader = '') => {
   const match = authorizationHeader.match(/^Bearer\s+(.+)$/i);
   return match ? match[1].trim() : '';
-};
-
-const secureCompare = (a, b) => {
-  const aBuffer = Buffer.from(a);
-  const bBuffer = Buffer.from(b);
-
-  return aBuffer.length === bBuffer.length && crypto.timingSafeEqual(aBuffer, bBuffer);
 };
 
 const requireN8nBackendToken = (req, res, next) => {
@@ -267,12 +302,11 @@ const requireN8nBackendToken = (req, res, next) => {
 
 // --- HELPER TO TRIGGER n8n AUTOMATION & WHATSAPP NOTIFICATIONS ---
 async function sendAutomationPayload(appointment, eventName = 'appointment.created', cancelledBy = '') {
-  const config = readJSON(CONFIG_FILE, DEFAULT_WHATSAPP_CONFIG);
-  const logs = readJSON(LOGS_FILE, []);
+  const config = await getAutomationConfig();
   const isCancellation = eventName === 'appointment.cancelled';
 
   const logEntry = {
-    id: 'log_' + Date.now(),
+    id: appointment.eventId,
     timestamp: new Date().toISOString(),
     patientName: appointment.name,
     patientPhone: appointment.phone,
@@ -287,8 +321,7 @@ async function sendAutomationPayload(appointment, eventName = 'appointment.creat
   if (!config.enabled) {
     logEntry.status = 'skipped_disabled';
     logEntry.message = 'Automation & WhatsApp notifications disabled in admin settings.';
-    logs.unshift(logEntry);
-    writeJSON(LOGS_FILE, logs.slice(0, 100));
+      if (appointment.eventId) await query('UPDATE automation_events SET status=$2, last_error=$3 WHERE id=$1', [appointment.eventId, 'failed', 'Automation disabled']);
     return { success: false, reason: 'Notifications disabled' };
   }
 
@@ -359,7 +392,7 @@ async function sendAutomationPayload(appointment, eventName = 'appointment.creat
 
       const res = await fetch(webhookUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(process.env.N8N_WEBHOOK_SECRET ? { 'X-Clinic-Webhook-Secret': process.env.N8N_WEBHOOK_SECRET } : {}), 'Idempotency-Key': appointment.eventId || appointment.id },
         body: JSON.stringify(n8nPayload)
       });
       const responseText = await res.text();
@@ -378,8 +411,7 @@ async function sendAutomationPayload(appointment, eventName = 'appointment.creat
       const calendarEventId = extractCalendarEventId(responseData);
       logEntry.status = 'success';
       logEntry.calendarEventId = calendarEventId || appointment.calendarEventId || '';
-      logs.unshift(logEntry);
-      writeJSON(LOGS_FILE, logs.slice(0, 100));
+      if (appointment.eventId) await query('UPDATE automation_events SET status=$2, attempts=attempts+1, delivered_at=now(), last_error=NULL WHERE id=$1', [appointment.eventId, 'delivered']);
       return {
         success: true,
         provider: 'n8n',
@@ -392,18 +424,31 @@ async function sendAutomationPayload(appointment, eventName = 'appointment.creat
       };
     } else {
       logEntry.status = 'success';
-      logs.unshift(logEntry);
-      writeJSON(LOGS_FILE, logs.slice(0, 100));
+      if (appointment.eventId) await query('UPDATE automation_events SET status=$2, attempts=attempts+1, delivered_at=now() WHERE id=$1', [appointment.eventId, 'delivered']);
       return { success: true, message: 'Notification logged' };
     }
   } catch (err) {
     logEntry.status = 'failed';
     logEntry.error = err.message || String(err);
-    logs.unshift(logEntry);
-    writeJSON(LOGS_FILE, logs.slice(0, 100));
+    if (appointment.eventId) await query('UPDATE automation_events SET status=$2, attempts=attempts+1, next_attempt_at=now()+interval \'5 minutes\', last_error=$3 WHERE id=$1', [appointment.eventId, 'failed', logEntry.error]);
     return { success: false, error: err.message };
   }
 }
+
+const requireAuth = (req, res, next) => req.session.user ? next() : res.status(401).json({ success: false, error: 'Authentication required' });
+const requireRole = (...roles) => (req, res, next) => {
+  if (!req.session.user || !roles.includes(req.session.user.role)) return res.status(403).json({ success: false, error: 'Forbidden' });
+  next();
+};
+const cleanUser = ({ id, email, role, full_name: name }) => ({ id, email, role, name: name || '' });
+const createOutboxEvent = async (client, appointmentId, eventType, payload) => {
+  const { rows } = await client.query('INSERT INTO automation_events(appointment_id,event_type,payload) VALUES($1,$2,$3) RETURNING id', [appointmentId, eventType, JSON.stringify(payload)]);
+  return rows[0].id;
+};
+const recordAudit = (client, actorId, action, entityType, entityId, metadata = {}) => client.query(
+  'INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata) VALUES($1,$2,$3,$4,$5)',
+  [actorId, action, entityType, entityId, JSON.stringify(metadata)]
+);
 
 // --- API ENDPOINTS ---
 
@@ -415,162 +460,193 @@ app.get('/api/quiz', (req, res) => {
   res.json({ success: true, data: QUIZ_QUESTIONS });
 });
 
-app.get('/api/appointments', (req, res) => {
-  const appointments = readJSON(APPOINTMENTS_FILE, []);
-  res.json({ success: true, count: appointments.length, data: appointments });
+app.post('/api/auth/register', authLimiter, async (req, res, next) => {
+  const name = String(req.body.name || '').trim();
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const phone = String(req.body.phone || '').trim();
+  const password = String(req.body.password || '');
+  if (name.length < 2 || name.length > 120 || !/^\S+@\S+\.\S+$/.test(email) || password.length < 10 || password.length > 200) return res.status(400).json({ success: false, error: 'Provide a valid name, email, and password of at least 10 characters.' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const user = await client.query("INSERT INTO users(email,password_hash,role) VALUES($1,$2,'patient') RETURNING id,email,role", [email, await bcrypt.hash(password, 12)]);
+    await client.query('INSERT INTO patients(user_id,full_name,phone) VALUES($1,$2,$3)', [user.rows[0].id, name, phone]);
+    await client.query('COMMIT');
+    req.session.user = { ...user.rows[0], name };
+    await new Promise((resolve, reject) => req.session.save(error => error ? reject(error) : resolve()));
+    res.status(201).json({ success: true, user: cleanUser(req.session.user) });
+  } catch (e) { await client.query('ROLLBACK'); if (e.code === '23505') return res.status(409).json({ success: false, error: 'An account with that email already exists.' }); next(e); }
+  finally { client.release(); }
+});
+app.post('/api/auth/login', authLimiter, async (req, res, next) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const { rows } = await query('SELECT u.id,u.email,u.role,u.password_hash,p.full_name FROM users u LEFT JOIN patients p ON p.user_id=u.id WHERE u.email=$1 AND u.is_active=true', [email]);
+    if (!rows[0] || !(await bcrypt.compare(String(req.body.password || ''), rows[0].password_hash))) return res.status(401).json({ success: false, error: 'Email or password is incorrect.' });
+    const { password_hash, full_name, ...user } = rows[0];
+    await new Promise((resolve, reject) => req.session.regenerate(error => error ? reject(error) : resolve()));
+    req.session.user = { ...user, name: full_name || '' };
+    await new Promise((resolve, reject) => req.session.save(error => error ? reject(error) : resolve()));
+    res.json({ success: true, user: cleanUser(req.session.user) });
+  } catch (e) { next(e); }
+});
+app.post('/api/auth/logout', requireAuth, (req, res, next) => req.session.destroy(error => error ? next(error) : (res.clearCookie('clinic.sid'), res.json({ success: true }))));
+app.get('/api/auth/me', requireAuth, (req, res) => res.json({ success: true, user: cleanUser(req.session.user) }));
+app.post('/api/auth/staff-login', authLimiter, async (req, res, next) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const { rows } = await query("SELECT id,email,role,password_hash FROM users WHERE email=$1 AND is_active=true AND role IN ('doctor','receptionist')", [email]);
+    if (!rows[0] || !(await bcrypt.compare(String(req.body.password || ''), rows[0].password_hash))) return res.status(401).json({ success: false, error: 'Email or password is incorrect.' });
+    const { password_hash, ...user } = rows[0];
+    await new Promise((resolve, reject) => req.session.regenerate(error => error ? reject(error) : resolve()));
+    req.session.user = user;
+    await new Promise((resolve, reject) => req.session.save(error => error ? reject(error) : resolve()));
+    res.json({ success: true, user });
+  } catch (e) { next(e); }
+});
+app.post('/api/auth/forgot-password',authLimiter,async(req,res,next)=>{try{const email=String(req.body.email||'').trim().toLowerCase();const {rows}=await query('SELECT id FROM users WHERE email=$1 AND is_active=true',[email]);if(rows[0]){const token=randomBytes(32).toString('hex');await query("INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '30 minutes')",[rows[0].id,createHash('sha256').update(token).digest('hex')]);if(process.env.PASSWORD_RESET_WEBHOOK){await fetch(process.env.PASSWORD_RESET_WEBHOOK,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,token,expiresInMinutes:30})}).catch(e=>console.error('Password reset delivery failed:',e.message));}else console.warn('Password reset requested but PASSWORD_RESET_WEBHOOK is not configured.');}res.json({success:true,message:'If an account matches that email, reset instructions will be sent.'});}catch(e){next(e);}});
+app.post('/api/auth/reset-password',authLimiter,async(req,res,next)=>{try{const token=String(req.body.token||'');const password=String(req.body.password||'');if(token.length<32||password.length<10)return res.status(400).json({success:false,error:'Invalid reset request.'});const hash=createHash('sha256').update(token).digest('hex');const client=await pool.connect();try{await client.query('BEGIN');const {rows}=await client.query('SELECT id,user_id FROM password_reset_tokens WHERE token_hash=$1 AND used_at IS NULL AND expires_at>now() FOR UPDATE',[hash]);if(!rows[0]){await client.query('ROLLBACK');return res.status(400).json({success:false,error:'Reset link is invalid or expired.'});}await client.query('UPDATE users SET password_hash=$2,updated_at=now() WHERE id=$1',[rows[0].user_id,await bcrypt.hash(password,12)]);await client.query('UPDATE password_reset_tokens SET used_at=now() WHERE id=$1',[rows[0].id]);await client.query('DELETE FROM sessions WHERE sess::text LIKE $1',[`%${rows[0].user_id}%`]);await client.query('COMMIT');res.json({success:true});}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}}catch(e){next(e);}});
+
+app.get('/api/services/catalog', async (_req, res, next) => { try { const { rows } = await query('SELECT id,name,duration_minutes FROM services WHERE active=true ORDER BY name'); res.json({ success: true, data: rows }); } catch (e) { next(e); } });
+app.get('/api/appointments', requireRole('doctor','receptionist'), async (_req, res, next) => {
+  try { const { rows } = await query(`SELECT a.id,a.starts_at,a.ends_at,a.status,a.patient_message,a.rejection_reason,a.created_at,s.name service,p.full_name name,p.phone,u.email FROM appointments a JOIN patients p ON p.id=a.patient_id JOIN users u ON u.id=p.user_id JOIN services s ON s.id=a.service_id ORDER BY a.starts_at DESC`); res.json({ success: true, count: rows.length, data: rows }); } catch (e) { next(e); }
+});
+app.get('/api/appointments/mine', requireRole('patient'), async (req, res, next) => {
+  try { const { rows } = await query('SELECT a.id,a.starts_at,a.ends_at,a.status,a.rejection_reason,s.name service FROM appointments a JOIN patients p ON p.id=a.patient_id JOIN services s ON s.id=a.service_id WHERE p.user_id=$1 ORDER BY a.starts_at DESC', [req.session.user.id]); res.json({ success: true, data: rows }); } catch (e) { next(e); }
+});
+app.post('/api/appointments', async (req, res, next) => {
+  if (!req.session.user) return res.status(401).json({ success:false,error:'Sign in or register as a patient before booking.' });
+  if (!['patient','doctor','receptionist'].includes(req.session.user.role)) return res.status(403).json({ success:false,error:'Forbidden' });
+  let name = String(req.body.name || '').trim(); let email = String(req.body.email || '').trim().toLowerCase(); let phone = String(req.body.phone || '').trim();
+  const service = String(req.body.service || '').trim(); const date = String(req.body.date || ''); const time = String(req.body.time || '');
+  if (name.length < 2 || name.length > 120 || !/^\S+@\S+\.\S+$/.test(email) || !/^[\d\s+()-]{7,20}$/.test(phone) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{1,2}:\d{2}$/.test(time)) return res.status(400).json({ success:false,error:'Please provide valid contact details and an appointment time.' });
+  if(req.session.user && !['patient','doctor','receptionist'].includes(req.session.user.role)) return res.status(403).json({success:false,error:'Forbidden'});
+  if(req.session.user?.role==='patient' && req.session.user.email!==email) return res.status(403).json({success:false,error:'Use the email address on your patient account.'});
+  if(!req.session.user && req.body.role) return res.status(400).json({success:false,error:'Role is not accepted for public booking.'});
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    let patientId; let patientUserId;
+    if (req.session.user?.role === 'patient') {
+      patientUserId = req.session.user.id;
+      const p = await client.query('SELECT p.id,p.full_name,p.phone,u.email FROM patients p JOIN users u ON u.id=p.user_id WHERE p.user_id=$1', [patientUserId]);
+      patientId = p.rows[0]?.id;
+      if (p.rows[0]) { name = p.rows[0].full_name; phone = p.rows[0].phone; email = p.rows[0].email; }
+    } else {
+      const existing = await client.query("SELECT u.id,p.id patient_id,u.role FROM users u LEFT JOIN patients p ON p.user_id=u.id WHERE u.email=$1", [email]);
+      if(existing.rows[0] && existing.rows[0].role!=='patient') throw Object.assign(new Error('That email belongs to a staff account.'),{status:409});
+      if (existing.rows[0]?.id && existing.rows[0].patient_id) { patientUserId=existing.rows[0].id; patientId=existing.rows[0].patient_id; await client.query('UPDATE patients SET full_name=$2,phone=$3 WHERE id=$1',[patientId,name,phone]); }
+      else {
+        const u = await client.query("INSERT INTO users(email,password_hash,role) VALUES($1,$2,'patient') ON CONFLICT(email) DO NOTHING RETURNING id", [email, await bcrypt.hash(cryptoRandomPassword(), 12)]);
+        if (!u.rows[0]) throw Object.assign(new Error('This email is already registered. Please log in to book.'), { status: 409 });
+        patientUserId=u.rows[0].id; const p=await client.query('INSERT INTO patients(user_id,full_name,phone) VALUES($1,$2,$3) RETURNING id',[patientUserId,name,phone]); patientId=p.rows[0].id;
+      }
+    }
+    if (!patientId) throw Object.assign(new Error('Patient profile was not found.'), { status: 400 });
+    const svc = await client.query('SELECT id,duration_minutes FROM services WHERE name=$1 AND active=true', [service]);
+    if (!svc.rows[0]) throw Object.assign(new Error('Please select an available service.'), { status: 400 });
+    const start = `${date}T${time}:00+05:30`; const startDate=new Date(start); if(Number.isNaN(startDate.getTime())||startDate<=new Date()||startDate>new Date(Date.now()+30*86400000))throw Object.assign(new Error('Choose an appointment within the next 30 days.'),{status:400}); const end = new Date(startDate.getTime()+svc.rows[0].duration_minutes*60000).toISOString();
+    const appt = await client.query("INSERT INTO appointments(patient_id,service_id,starts_at,ends_at,patient_message,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,starts_at,ends_at,status,created_at", [patientId,svc.rows[0].id,start,end,String(req.body.notes||'').slice(0,2000),req.session.user?.id||null]);
+    const full = { ...appt.rows[0], name, phone, email, service, date, time, notes: String(req.body.notes||''), createdAt: appt.rows[0].created_at, status:'Pending' };
+    const { rows: doctors } = await client.query("SELECT id FROM users WHERE role='doctor' AND is_active=true");
+    for (const doctor of doctors) await client.query('INSERT INTO notifications(user_id,appointment_id,kind,message) VALUES($1,$2,$3,$4)', [doctor.id, full.id, 'appointment.pending', `New appointment request from ${name}`]);
+    const eventId = await createOutboxEvent(client,full.id,'appointment.pending', { event:'appointment.pending', appointmentId:full.id, patientName:name,patientPhone:phone,patientEmail:email,service,date,time,status:'Pending' }); full.eventId=eventId;
+    await client.query('COMMIT');
+    processAutomationEvent(eventId, full).catch(error => console.error('Automation delivery failed:',error.message));
+    res.status(201).json({ success:true,message:'Appointment request received. The clinic will confirm after review.',appointment:{...full,pending:true} });
+  } catch (e) { await client.query('ROLLBACK'); if (e.code==='23P01') return res.status(409).json({success:false,error:'That time is already requested. Please choose another slot.'}); next(e); }
+  finally { client.release(); }
 });
 
-app.post('/api/appointments', async (req, res) => {
-  const { name, phone, email, service, date, time, notes } = req.body;
+function cryptoRandomPassword() { return `${Math.random().toString(36)}-${Date.now()}-${Math.random().toString(36)}`; }
 
-  if (!name || !phone || !service || !date || !time) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required fields: name, phone, service, date, time'
-    });
-  }
+async function processAutomationEvent(eventId, appointment) {
+  const { rows } = await query('SELECT event_type,payload FROM automation_events WHERE id=$1', [eventId]);
+  if (!rows[0]) return;
+  const item = { ...appointment, eventId, ...rows[0].payload };
+  await sendAutomationPayload(item, rows[0].event_type);
+}
 
-  const appointments = readJSON(APPOINTMENTS_FILE, []);
-  const newAppointment = {
-    id: 'DML-' + Math.floor(100000 + Math.random() * 900000),
-    name: name.trim(),
-    phone: phone.trim(),
-    email: email ? email.trim() : '',
-    service,
-    date,
-    time,
-    notes: notes || '',
-    status: 'Confirmed',
-    createdAt: new Date().toISOString()
-  };
-
-  appointments.unshift(newAppointment);
-  writeJSON(APPOINTMENTS_FILE, appointments);
-
-  // Trigger automated n8n Webhook / WhatsApp + Google Calendar
-  const automationResult = await sendAutomationPayload(newAppointment);
-  if (automationResult.calendarEventId) {
-    newAppointment.calendarEventId = automationResult.calendarEventId;
-    updateAppointmentById(newAppointment.id, {
-      calendarEventId: automationResult.calendarEventId
-    });
-  }
-
-  res.status(201).json({
-    success: true,
-    message: 'Appointment booked successfully!',
-    appointment: newAppointment,
-    automation: automationResult
-  });
+app.patch('/api/appointments/:id/decision', requireRole('doctor'), async (req,res,next) => {
+  const status = req.body.status === 'approved' ? 'approved' : req.body.status === 'rejected' ? 'rejected' : '';
+  if (!status) return res.status(400).json({success:false,error:'Decision must be approved or rejected.'});
+  const client=await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const {rows}=await client.query('SELECT a.id,a.starts_at,a.ends_at,a.patient_message,a.status,s.name service,p.full_name name,p.phone,u.email FROM appointments a JOIN patients p ON p.id=a.patient_id JOIN users u ON u.id=p.user_id JOIN services s ON s.id=a.service_id WHERE a.id=$1 FOR UPDATE',[req.params.id]);
+    if(!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({success:false,error:'Appointment not found.'}); }
+    if(rows[0].status!=='pending') { await client.query('ROLLBACK'); return res.status(409).json({success:false,error:'Only pending requests can be decided.'}); }
+    const reason = status==='rejected' ? String(req.body.reason||'').trim().slice(0,1000) : null;
+    const updated=await client.query('UPDATE appointments SET status=$2,rejection_reason=$3,updated_at=now() WHERE id=$1 RETURNING id,starts_at,ends_at,status',[req.params.id,status,reason]);
+    const appointment={...rows[0],...updated.rows[0], date:new Date(rows[0].starts_at).toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}),time:new Date(rows[0].starts_at).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'Asia/Kolkata'}),rejectionReason:reason};
+    await client.query('INSERT INTO notifications(user_id,appointment_id,kind,message) SELECT user_id,$2,$3,$4 FROM patients WHERE id=(SELECT patient_id FROM appointments WHERE id=$2)',[req.params.id,status=== 'approved'?'appointment.approved':'appointment.rejected',status==='approved'?'Your appointment has been approved.':`Your appointment request was declined.${reason?` Reason: ${reason}`:''}`]);
+    await recordAudit(client,req.session.user.id,`appointment.${status}`,'appointment',req.params.id,{reason});
+    const eventId=await createOutboxEvent(client,req.params.id,`appointment.${status}`,{event:`appointment.${status}`,appointmentId:req.params.id,patientName:appointment.name,patientPhone:appointment.phone,patientEmail:appointment.email,service:appointment.service,date:appointment.date,time:appointment.time,status:status==='approved'?'Confirmed':'Rejected',rejectionReason:reason}); appointment.eventId=eventId;
+    await client.query('COMMIT');
+    processAutomationEvent(eventId,appointment).catch(error=>console.error('Automation delivery failed:',error.message));
+    res.json({success:true,appointment});
+  } catch(e){await client.query('ROLLBACK');if(e.code==='23P01')return res.status(409).json({success:false,error:'This appointment conflicts with another active booking.'});next(e);} finally{client.release();}
+});
+app.patch('/api/appointments/:id/cancel', requireAuth, async (req,res,next)=>{
+  const client=await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const values=[req.params.id];
+    const own=req.session.user.role==='patient';
+    let sql=`SELECT a.id,a.starts_at,a.ends_at,a.status,s.name service,p.full_name name,p.phone,u.email FROM appointments a JOIN patients p ON p.id=a.patient_id JOIN users u ON u.id=p.user_id JOIN services s ON s.id=a.service_id WHERE a.id=$1`;
+    if(own){values.push(req.session.user.id);sql+=' AND p.user_id=$2';}
+    const {rows}=await client.query(sql+' FOR UPDATE',values);
+    if(!rows[0]){await client.query('ROLLBACK');return res.status(404).json({success:false,error:'Appointment not found.'});}
+    if(own && (rows[0].status!=='pending'||new Date(rows[0].starts_at)<=new Date())){await client.query('ROLLBACK');return res.status(403).json({success:false,error:'This appointment is no longer eligible for cancellation.'});}
+    const updated=await client.query("UPDATE appointments SET status='cancelled',updated_at=now() WHERE id=$1 RETURNING id,starts_at,ends_at,status",[req.params.id]);
+    const appointment={...rows[0],...updated.rows[0],date:new Date(rows[0].starts_at).toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}),time:new Date(rows[0].starts_at).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'Asia/Kolkata'})};
+    await recordAudit(client,req.session.user.id,'appointment.cancelled','appointment',req.params.id);
+    const eventId=await createOutboxEvent(client,req.params.id,'appointment.cancelled',{event:'appointment.cancelled',appointmentId:req.params.id,patientName:appointment.name,patientPhone:appointment.phone,patientEmail:appointment.email,service:appointment.service,date:appointment.date,time:appointment.time,status:'Cancelled',cancelledBy:req.session.user.role});appointment.eventId=eventId;
+    await client.query('COMMIT'); processAutomationEvent(eventId,appointment).catch(error=>console.error('Automation delivery failed:',error.message));
+    res.json({success:true,appointment});
+  }catch(e){await client.query('ROLLBACK');next(e);}finally{client.release();}
+});
+app.get('/api/patients', requireRole('doctor','receptionist'), async(req,res,next)=>{try{const q=`%${String(req.query.q||'').slice(0,100)}%`;const {rows}=await query(`SELECT p.id,p.full_name name,p.phone,u.email,p.created_at FROM patients p JOIN users u ON u.id=p.user_id WHERE p.full_name ILIKE $1 OR p.phone ILIKE $1 OR u.email ILIKE $1 ORDER BY p.full_name LIMIT 100`,[q]);res.json({success:true,data:rows});}catch(e){next(e);}});
+app.get('/api/doctor/summary',requireRole('doctor'),async(_req,res,next)=>{try{const {rows}=await query(`SELECT (SELECT count(*)::int FROM patients) total_patients,(SELECT count(*)::int FROM appointments WHERE starts_at::date=(now() AT TIME ZONE 'Asia/Kolkata')::date) today_appointments,(SELECT count(*)::int FROM appointments WHERE status='pending') pending,(SELECT count(*)::int FROM appointments WHERE status='completed') completed`);res.json({success:true,data:rows[0]});}catch(e){next(e);}});
+app.get('/api/reception/summary',requireRole('receptionist'),async(_req,res,next)=>{try{const {rows}=await query(`SELECT count(*) FILTER(WHERE starts_at::date=(now() AT TIME ZONE 'Asia/Kolkata')::date)::int today,count(*) FILTER(WHERE status='pending')::int pending,count(*) FILTER(WHERE status='approved')::int approved,(SELECT count(*)::int FROM patients) total_patients FROM appointments`);res.json({success:true,data:rows[0]});}catch(e){next(e);}});
+app.get('/api/patients/:id/treatments',requireRole('doctor'),async(req,res,next)=>{try{const {rows}=await query('SELECT * FROM treatment_records WHERE patient_id=$1 ORDER BY created_at DESC',[req.params.id]);res.json({success:true,data:rows});}catch(e){next(e);}});
+app.post('/api/patients/:id/treatments',requireRole('doctor'),async(req,res,next)=>{try{const notes=String(req.body.notes||'').trim();if(!notes||notes.length>10000)return res.status(400).json({success:false,error:'Treatment notes are required (up to 10,000 characters).'});const {rows}=await query('INSERT INTO treatment_records(patient_id,appointment_id,doctor_id,notes) VALUES($1,$2,$3,$4) RETURNING *',[req.params.id,req.body.appointmentId||null,req.session.user.id,notes]);await query('INSERT INTO audit_logs(actor_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4)',[req.session.user.id,'treatment.created','treatment_record',rows[0].id]);res.status(201).json({success:true,data:rows[0]});}catch(e){next(e);}});
+app.get('/api/doctor/availability',requireRole('doctor'),async(_req,res,next)=>{try{const {rows}=await query('SELECT * FROM doctor_availability ORDER BY weekday,starts_at');res.json({success:true,data:rows});}catch(e){next(e);}});
+app.put('/api/doctor/availability',requireRole('doctor'),async(req,res,next)=>{const intervals=Array.isArray(req.body.intervals)?req.body.intervals:[];if(intervals.length>70||intervals.some(x=>!Number.isInteger(x.weekday)||x.weekday<0||x.weekday>6||!/^\d{2}:\d{2}$/.test(x.starts_at)||!/^\d{2}:\d{2}$/.test(x.ends_at)||x.starts_at>=x.ends_at))return res.status(400).json({success:false,error:'Availability intervals must have valid days and times.'});const client=await pool.connect();try{await client.query('BEGIN');await client.query('DELETE FROM doctor_availability');for(const slot of intervals)await client.query('INSERT INTO doctor_availability(weekday,starts_at,ends_at,active) VALUES($1,$2,$3,$4)',[slot.weekday,slot.starts_at,slot.ends_at,slot.active!==false]);await recordAudit(client,req.session.user.id,'availability.updated','doctor_availability',null,{count:intervals.length});await client.query('COMMIT');res.json({success:true,data:intervals});}catch(e){await client.query('ROLLBACK');next(e);}finally{client.release();}});
+app.get('/api/notifications',requireRole('doctor','receptionist'),async(req,res,next)=>{try{const {rows}=await query('SELECT id,kind,message,read_at,created_at FROM notifications WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100',[req.session.user.id]);res.json({success:true,data:rows});}catch(e){next(e);}});
+app.get('/api/patient/profile',requireRole('patient'),async(req,res,next)=>{try{const {rows}=await query('SELECT p.id,p.full_name name,p.phone,u.email,p.date_of_birth,p.address FROM patients p JOIN users u ON u.id=p.user_id WHERE p.user_id=$1',[req.session.user.id]);res.json({success:true,data:rows[0]});}catch(e){next(e);}});
+app.patch('/api/patient/profile',requireRole('patient'),async(req,res,next)=>{try{const name=String(req.body.name||'').trim();const phone=String(req.body.phone||'').trim();if(name.length<2||name.length>120||! /^[\d\s+()-]{7,20}$/.test(phone))return res.status(400).json({success:false,error:'Provide a valid name and phone number.'});const {rows}=await query('UPDATE patients SET full_name=$2,phone=$3,updated_at=now() WHERE user_id=$1 RETURNING id,full_name name,phone',[req.session.user.id,name,phone]);req.session.user.name=name;res.json({success:true,data:rows[0]});}catch(e){next(e);}});
+app.get('/api/staff/appointments/:id',requireRole('doctor','receptionist'),async(req,res,next)=>{try{const {rows}=await query('SELECT a.*,p.full_name name,p.phone,u.email,s.name service FROM appointments a JOIN patients p ON p.id=a.patient_id JOIN users u ON u.id=p.user_id JOIN services s ON s.id=a.service_id WHERE a.id=$1',[req.params.id]);if(!rows[0])return res.status(404).json({success:false,error:'Appointment not found'});res.json({success:true,data:rows[0]});}catch(e){next(e);}});
+app.get('/api/staff/patients/:id',requireRole('doctor','receptionist'),async(req,res,next)=>{try{const {rows}=await query('SELECT p.id,p.full_name name,p.phone,u.email,p.created_at FROM patients p JOIN users u ON u.id=p.user_id WHERE p.id=$1',[req.params.id]);if(!rows[0])return res.status(404).json({success:false,error:'Patient not found'});res.json({success:true,data:rows[0]});}catch(e){next(e);}});
+app.get('/api/whatsapp/config',requireRole('doctor'),async(_req,res,next)=>{try{const config=await getAutomationConfig();res.json({success:true,data:{...config,n8nWebhookUrl:undefined,n8nCancelWebhookUrl:undefined}});}catch(e){next(e);}});
+app.post('/api/whatsapp/config',requireRole('doctor'),async(req,res,next)=>{try{const value={...await getAutomationConfig(),enabled:Boolean(req.body.enabled)};await query("INSERT INTO app_settings(key,value) VALUES('automation_config',$1) ON CONFLICT(key) DO UPDATE SET value=app_settings.value || EXCLUDED.value,updated_at=now()",[JSON.stringify(value)]);await query("INSERT INTO audit_logs(actor_id,action,entity_type) VALUES($1,'automation.config.updated','settings')",[req.session.user.id]);res.json({success:true,message:'Automation settings saved',data:{enabled:value.enabled}});}catch(e){next(e);}});
+app.get('/api/whatsapp/logs',requireRole('doctor'),async(_req,res,next)=>{try{const {rows}=await query('SELECT id,event_type event,status,attempts,last_error error,created_at timestamp FROM automation_events ORDER BY created_at DESC LIMIT 100');res.json({success:true,data:rows});}catch(e){next(e);}});
+app.post('/api/n8n/test',requireRole('doctor'),async(req,res,next)=>{try{const client=await pool.connect();try{await client.query('BEGIN');const id=await createOutboxEvent(client,null,'automation.test',{event:'automation.test'});await client.query('COMMIT');res.json({success:true,result:{success:true,eventId:id,message:'Test outbox event queued.'}});}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}}catch(e){next(e);}});
+app.patch('/api/appointments/:id/calendar-event', requireN8nBackendToken, async (req, res, next) => {
+  try {const id=String(req.body.calendarEventId||'').trim();if(!id)return res.status(400).json({success:false,error:'calendarEventId is required'});const {rows}=await query('UPDATE appointments SET calendar_event_id=$2,updated_at=now() WHERE id=$1 RETURNING id,calendar_event_id',[req.params.id,id]);if(!rows[0])return res.status(404).json({success:false,error:'Appointment not found'});res.json({success:true,appointmentId:rows[0].id,calendarEventId:rows[0].calendar_event_id});}catch(e){next(e);}
 });
 
-app.patch('/api/appointments/:id/calendar-event', requireN8nBackendToken, (req, res) => {
-  const { id } = req.params;
-  const { calendarEventId } = req.body;
-
-  if (!id || typeof id !== 'string') {
-    return res.status(400).json({ success: false, error: 'appointment id is required' });
-  }
-
-  if (typeof calendarEventId !== 'string' || !calendarEventId.trim()) {
-    return res.status(400).json({ success: false, error: 'calendarEventId is required' });
-  }
-
-  const updatedAppointment = updateAppointmentById(id, { calendarEventId: calendarEventId.trim() });
-  if (!updatedAppointment) {
-    return res.status(404).json({ success: false, error: 'Appointment not found' });
-  }
-
-  res.json({
-    success: true,
-    appointmentId: updatedAppointment.id,
-    calendarEventId: updatedAppointment.calendarEventId
-  });
+app.use((error, req, res, _next) => {
+  console.error(`[${new Date().toISOString()}] ${req.method} ${req.path}`, error);
+  const status = error.status || (error.code === '23505' ? 409 : 500);
+  res.status(status).json({ success: false, error: status >= 500 ? 'An unexpected server error occurred.' : error.message });
 });
 
-app.patch('/api/appointments/:id/cancel', async (req, res) => {
-  const { id } = req.params;
-  const { cancelledBy = 'customer' } = req.body || {};
-  const appointments = readJSON(APPOINTMENTS_FILE, []);
-  const appointment = appointments.find(app => app.id === id);
-
-  if (!appointment) {
-    return res.status(404).json({ success: false, error: 'Appointment not found' });
-  }
-
-  const cancelledAppointment = updateAppointmentById(id, {
-    status: 'Cancelled',
-    cancelledBy,
-    cancelledAt: new Date().toISOString()
-  });
-  const automationResult = await sendAutomationPayload(cancelledAppointment, 'appointment.cancelled', cancelledBy);
-
-  res.json({
-    success: true,
-    message: 'Appointment cancelled successfully',
-    appointment: cancelledAppointment,
-    automation: automationResult
-  });
-});
-
-app.delete('/api/appointments/:id', async (req, res) => {
-  const { id } = req.params;
-  let appointments = readJSON(APPOINTMENTS_FILE, []);
-  const appointment = appointments.find(app => app.id === id);
-
-  if (!appointment) {
-    return res.status(404).json({ success: false, error: 'Appointment not found' });
-  }
-
-  const cancelledBy = req.query.cancelledBy || 'admin';
-  const automationResult = await sendAutomationPayload(
-    { ...appointment, status: 'Cancelled', cancelledAt: new Date().toISOString() },
-    'appointment.cancelled',
-    cancelledBy
-  );
-  appointments = appointments.filter(app => app.id !== id);
-  writeJSON(APPOINTMENTS_FILE, appointments);
-  res.json({
-    success: true,
-    message: 'Appointment deleted and cancellation sent',
-    automation: automationResult
-  });
-});
-
-app.get('/api/whatsapp/config', (req, res) => {
-  const config = readJSON(CONFIG_FILE, DEFAULT_WHATSAPP_CONFIG);
-  res.json({ success: true, data: config });
-});
-
-app.post('/api/whatsapp/config', (req, res) => {
-  const newConfig = { ...DEFAULT_WHATSAPP_CONFIG, ...req.body };
-  writeJSON(CONFIG_FILE, newConfig);
-  res.json({ success: true, message: 'Configuration saved', data: newConfig });
-});
-
-app.get('/api/whatsapp/logs', (req, res) => {
-  const logs = readJSON(LOGS_FILE, []);
-  res.json({ success: true, data: logs });
-});
-
-// Test n8n Webhook Endpoint
-app.post('/api/n8n/test', async (req, res) => {
-  const dummyAppointment = {
-    id: 'TEST-DML-999',
-    name: 'Ananya Mehta (Test)',
-    phone: '+919876543210',
-    email: 'test@example.com',
-    service: 'Acne & Scar Treatment',
-    date: new Date().toISOString().split('T')[0],
-    time: '11:30 AM - 12:30 PM',
-    notes: 'Test booking from admin UI',
-    status: 'Confirmed',
-    createdAt: new Date().toISOString()
-  };
-
-  const result = await sendAutomationPayload(dummyAppointment);
-  res.json({ success: true, result });
-});
+// Retry due outbox events after process restarts. Delivery is idempotent at the n8n boundary.
+const dispatchOutbox = async () => {
+  try {
+    const { rows } = await query("UPDATE automation_events SET status='processing',attempts=attempts+1 WHERE id IN (SELECT id FROM automation_events WHERE status IN ('pending','failed') AND next_attempt_at<=now() ORDER BY created_at LIMIT 10 FOR UPDATE SKIP LOCKED) RETURNING id,event_type,payload,appointment_id");
+    for (const event of rows) {
+      try {
+        let appointment={...event.payload,eventId:event.id,id:event.appointment_id};
+        if(event.appointment_id){const result=await query('SELECT a.id,a.starts_at,a.ends_at,a.status,a.calendar_event_id,p.full_name name,p.phone,u.email,s.name service,a.patient_message notes FROM appointments a JOIN patients p ON p.id=a.patient_id JOIN users u ON u.id=p.user_id JOIN services s ON s.id=a.service_id WHERE a.id=$1',[event.appointment_id]);if(result.rows[0]){const a=result.rows[0];appointment={...appointment,...a,date:new Date(a.starts_at).toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}),time:new Date(a.starts_at).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'Asia/Kolkata'})};}}
+        await sendAutomationPayload(appointment,event.event_type);
+      } catch(error) { console.error('Outbox retry failed',event.id,error.message); await query("UPDATE automation_events SET status='failed',next_attempt_at=now()+LEAST(interval '1 hour', interval '1 minute' * power(2,LEAST(attempts,6))),last_error=$2 WHERE id=$1",[event.id,error.message]); }
+    }
+  } catch(error) { if(error.code!=='42P01')console.error('Outbox poll failed:',error.message); }
+};
+setInterval(dispatchOutbox, 30000).unref();
+dispatchOutbox();
 
 app.listen(PORT, () => {
   console.log(`DermaCare Luxe Node.js Backend listening on http://localhost:${PORT}`);
