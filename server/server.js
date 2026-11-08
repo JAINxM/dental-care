@@ -18,28 +18,82 @@ const PORT = process.env.PORT || 5000;
 const PgSession = connectPgSimple(session);
 const production = process.env.NODE_ENV === 'production';
 app.set('trust proxy', 1);
-app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
 const allowedOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:5000',
   'http://127.0.0.1:5000',
+  'https://dental-care-mauve.vercel.app',
   ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()) : []),
   ...(process.env.CLIENT_URL ? [process.env.CLIENT_URL.trim()] : [])
 ].filter(Boolean);
 
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (!production) return callback(null, true);
-    if (allowedOrigins.some(ao => origin === ao || origin.startsWith(ao))) {
-      return callback(null, true);
+const isOriginAllowed = (origin, req) => {
+  if (!origin) return true;
+  if (!production) return true;
+
+  try {
+    const originUrl = new URL(origin);
+    const originHost = originUrl.host;
+    const originHostname = originUrl.hostname;
+
+    // 1. All Vercel deployments (*.vercel.app)
+    if (originHostname.endsWith('.vercel.app') || originHostname === 'vercel.app') {
+      return true;
     }
-    return callback(new Error('Not allowed by CORS'));
-  },
-  credentials: true
-}));
+
+    // 2. Local development
+    if (['localhost', '127.0.0.1', '::1'].includes(originHostname)) {
+      return true;
+    }
+
+    // 3. Same-origin or forwarded host
+    if (req) {
+      const host = req.get('host');
+      const forwardedHost = req.get('x-forwarded-host');
+      if (originHost === host) return true;
+      if (forwardedHost) {
+        const forwardedHosts = forwardedHost.split(',').map(h => h.trim());
+        if (forwardedHosts.includes(originHost)) return true;
+      }
+    }
+
+    // 4. Configured allowed origins
+    if (allowedOrigins.some(allowed => {
+      try {
+        const allowedUrl = new URL(allowed);
+        return originUrl.origin === allowedUrl.origin;
+      } catch {
+        return originHost === allowed || originHostname === allowed;
+      }
+    })) {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+};
+
+app.use((req, res, next) => {
+  const origin = req.get('origin');
+  if (isOriginAllowed(origin, req)) {
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With');
+    }
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+  }
+  next();
+});
+
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
 app.use(express.json({ limit: '32kb' }));
 
@@ -85,47 +139,11 @@ const csrfProtect = (req, res, next) => {
   const origin = req.get('origin') || req.get('referer');
   if (!origin) return next();
 
-  try {
-    const originUrl = new URL(origin);
-    const originHost = originUrl.host;
-    const originHostname = originUrl.hostname;
-
-    const host = req.get('host');
-    const forwardedHost = req.get('x-forwarded-host');
-    const reqHostname = req.hostname;
-
-    // Direct host match
-    if (originHost === host) return next();
-
-    // Forwarded host match (e.g. through Vite proxy or reverse proxy)
-    if (forwardedHost) {
-      const forwardedHosts = forwardedHost.split(',').map(h => h.trim());
-      if (forwardedHosts.includes(originHost)) return next();
-    }
-
-    // In local development, allow requests between localhost/loopback ports
-    const isLocalOrigin = ['localhost', '127.0.0.1', '::1'].includes(originHostname);
-    const isLocalReq = ['localhost', '127.0.0.1', '::1'].includes(reqHostname);
-    if (!production && isLocalOrigin && isLocalReq) {
-      return next();
-    }
-
-    // Configured allowed origins from environment
-    if (allowedOrigins.some(allowed => {
-      try {
-        const allowedUrl = new URL(allowed);
-        return originUrl.origin === allowedUrl.origin;
-      } catch {
-        return originHost === allowed || originHostname === allowed;
-      }
-    })) {
-      return next();
-    }
-
-    return res.status(403).json({ success: false, error: 'Origin check failed.' });
-  } catch {
-    return res.status(403).json({ success: false, error: 'Origin check failed.' });
+  if (isOriginAllowed(origin, req)) {
+    return next();
   }
+
+  return res.status(403).json({ success: false, error: 'Origin check failed.' });
 };
 app.use(csrfProtect);
 
