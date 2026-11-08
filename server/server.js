@@ -6,7 +6,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import { randomBytes, createHash } from 'node:crypto';
-import { pool, query, hasDatabaseUrl } from './db/pool.js';
+import { pool, query, hasDatabaseUrl, actualPool } from './db/pool.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -104,8 +104,8 @@ app.use((req, res, next) => {
   }
   next();
 });
-const sessionStore = hasDatabaseUrl
-  ? new PgSession({ pool, tableName: 'sessions', createTableIfMissing: true })
+const sessionStore = hasDatabaseUrl && actualPool
+  ? new PgSession({ pool: actualPool, tableName: 'sessions', createTableIfMissing: true })
   : new session.MemoryStore();
 
 app.use(session({
@@ -481,6 +481,15 @@ const recordAudit = (client, actorId, action, entityType, entityId, metadata = {
 );
 
 // --- API ENDPOINTS ---
+
+app.get('/api/health', (req, res) => {
+  res.json({
+    success: true,
+    databaseConfigured: hasDatabaseUrl,
+    environment: process.env.NODE_ENV || 'development',
+    isVercel: Boolean(process.env.VERCEL)
+  });
+});
 
 app.get('/api/services', (req, res) => {
   res.json({ success: true, data: SERVICES_DATA });
